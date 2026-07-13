@@ -17,17 +17,19 @@ RUN apt-get update \
 
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
-# Every version's `.db`, not just the default `mcp_store.db` — `store.rs`'s
-# `VERSION_STORE_BYTES` embeds all of them via `include_bytes!`, so
-# `cargo build` fails below if any are missing from the build context.
-COPY mcp_store.db ./mcp_store.db
+# The wildcard remains valid after `mcpify add-version` adds another store;
+# `store.rs` embeds every matching version via `include_bytes!`.
+COPY mcp_store*.db ./
 
-RUN cargo build --release
+# Build the helper first, populate every version, then perform the final
+# release build so `include_bytes!` captures the populated database bytes.
+RUN cargo build --release --bin rabbitmq-mcp-populate-embeddings
 
 # mcp_store.db leaves the Rust generator with an empty semantic_endpoints
 # table (vectors are computed here, not by mcpify itself — see the plan's
 # embeddings decision), so it must be populated before the image is usable.
-RUN ./target/release/rabbitmq-mcp-populate-embeddings
+RUN ./target/release/rabbitmq-mcp-populate-embeddings --all
+RUN cargo build --release
 
 # `fastembed`/`ort` (Story R6) may dynamically link an ONNX Runtime shared
 # library rather than statically linking it — if `cargo build --release`
@@ -44,7 +46,7 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/rabbitmq-mcp ./rabbitmq-mcp
 COPY --from=builder /app/target/release/rabbitmq-mcp-healthcheck ./rabbitmq-mcp-healthcheck
-COPY --from=builder /app/mcp_store.db ./mcp_store.db
+COPY --from=builder /app/mcp_store*.db ./
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["./rabbitmq-mcp-healthcheck"]
 
