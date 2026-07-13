@@ -1,0 +1,2 @@
+# rabbitmq-mcp-rs
+
