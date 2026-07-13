@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "language": "rust",
+  "display_name": "RabbitMQ Management HTTP API",
+  "project_name": "rabbitmq-mcp",
+  "default_version": "4.3.2",
+  "versions": {
+    "4.3.2": {
+      "db_file": "mcp_store.db",
+      "schemas_file": "src/validation/generated_schemas.json.zst",
+      "source": "/Users/lucianoguerche/Documents/GitHub/rabbitmq-mcp-rs/openapi/rabbitmq-management-v4.3.2.openapi.yaml",
+      "added_at": 1783956924
+    },
+    "4.2.8": {
+      "db_file": "mcp_store_v4.2.8.db",
+      "schemas_file": "src/validation/generated_schemas_v4.2.8.json.zst",
+      "source": "/Users/lucianoguerche/Documents/GitHub/rabbitmq-mcp-rs/openapi/rabbitmq-management-v4.2.8.openapi.yaml",
+      "added_at": 1783956976
+    },
+    "4.1.8": {
+      "db_file": "mcp_store_v4.1.8.db",
+      "schemas_file": "src/validation/generated_schemas_v4.1.8.json.zst",
+      "source": "/Users/lucianoguerche/Documents/GitHub/rabbitmq-mcp-rs/openapi/rabbitmq-management-v4.1.8.openapi.yaml",
+      "added_at": 1783956980
+    },
+    "4.0.9": {
+      "db_file": "mcp_store_v4.0.9.db",
+      "schemas_file": "src/validation/generated_schemas_v4.0.9.json.zst",
+      "source": "/Users/lucianoguerche/Documents/GitHub/rabbitmq-mcp-rs/openapi/rabbitmq-management-v4.0.9.openapi.yaml",
+      "added_at": 1783956985
+    },
+    "3.13.7": {
+      "db_file": "mcp_store_v3.13.7.db",
+      "schemas_file": "src/validation/generated_schemas_v3.13.7.json.zst",
+      "source": "/Users/lucianoguerche/Documents/GitHub/rabbitmq-mcp-rs/openapi/rabbitmq-management-v3.13.7.openapi.yaml",
+      "added_at": 1783956990
+    }
+  }
+}

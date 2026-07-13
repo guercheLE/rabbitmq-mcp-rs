@@ -1,0 +1,23 @@
+services:
+  rabbitmq-mcp:
+    build: .
+    image: rabbitmq-mcp:latest
+    env_file:
+      - .env
+    volumes:
+      - ~/.rabbitmq-mcp:/root/.rabbitmq-mcp
+    stdin_open: true
+    tty: true
+
+  rabbitmq-mcp-http:
+    build: .
+    image: rabbitmq-mcp:latest
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_MCP_TRANSPORT: http
+      RABBITMQ_MCP_PORT: "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ~/.rabbitmq-mcp:/root/.rabbitmq-mcp
