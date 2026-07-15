@@ -2,6 +2,7 @@ services:
   rabbitmq-mcp:
     build: .
     image: rabbitmq-mcp:latest
+    command: ["start"]
     env_file:
       - .env
     volumes:
@@ -12,6 +13,7 @@ services:
   rabbitmq-mcp-http:
     build: .
     image: rabbitmq-mcp:latest
+    command: ["http", "--host", "0.0.0.0", "--port", "3000"]
     env_file:
       - .env
     environment:

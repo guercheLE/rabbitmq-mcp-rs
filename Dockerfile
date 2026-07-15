@@ -17,19 +17,13 @@ RUN apt-get update \
 
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
-# The wildcard remains valid after `mcpify add-version` adds another store;
-# `store.rs` embeds every matching version via `include_bytes!`.
+# Include every current and future API version store in the build context.
 COPY mcp_store*.db ./
 
-# Build the helper first, populate every version, then perform the final
-# release build so `include_bytes!` captures the populated database bytes.
-RUN cargo build --release --bin rabbitmq-mcp-populate-embeddings
-
-# mcp_store.db leaves the Rust generator with an empty semantic_endpoints
-# table (vectors are computed here, not by mcpify itself — see the plan's
-# embeddings decision), so it must be populated before the image is usable.
+# Populate every store before the final build so include_bytes! embeds vectors.
+RUN cargo build --locked --release --bin rabbitmq-mcp-populate-embeddings
 RUN ./target/release/rabbitmq-mcp-populate-embeddings --all
-RUN cargo build --release
+RUN cargo build --locked --release
 
 # `fastembed`/`ort` (Story R6) may dynamically link an ONNX Runtime shared
 # library rather than statically linking it — if `cargo build --release`

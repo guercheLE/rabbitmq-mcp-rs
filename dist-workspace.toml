@@ -1,0 +1,38 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+#
+# x86_64-apple-darwin (Intel Mac) is deliberately excluded: Microsoft's
+# ONNX Runtime dropped x64 macOS support as of 1.24.1, and fastembed/ort
+# followed suit (https://github.com/pykeio/ort/issues/556) — there's no
+# prebuilt binary to link against, and self-compiling ONNX Runtime from
+# source is the only workaround, which is fragile/unofficial. Intel Mac
+# users can still build from source; this only drops prebuilt releases.
+targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# pyke's prebuilt ONNX Runtime binaries (fastembed/ort's
+# ort-download-binaries-rustls-tls feature) are compiled against the
+# dynamic CRT; dist's default static CRT linking on Windows makes them
+# unlinkable (`__imp_tolower`/`__imp_isdigit`/... unresolved externals —
+# see https://github.com/pykeio/ort/issues/473). Match ort's expectation.
+msvc-crt-static = false
+
+# dist's default x86_64-unknown-linux-gnu runner (ubuntu-22.04, glibc
+# 2.35) is too old for pyke's prebuilt ONNX Runtime, which references
+# glibc >= 2.38 symbols (`__isoc23_strtoll` and friends) — the same
+# reason the Dockerfile builds on Debian trixie instead of bookworm.
+# ubuntu-24.04 ships glibc 2.39.
+[dist.github-custom-runners]
+x86_64-unknown-linux-gnu = "ubuntu-24.04"
