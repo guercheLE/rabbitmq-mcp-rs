@@ -257,7 +257,10 @@ pub async fn run_setup_wizard() -> anyhow::Result<()> {
 
     let mut env: HashMap<String, String> = HashMap::new();
     env.insert("RABBITMQ_MCP_URL".to_string(), url.clone());
-    env.insert("RABBITMQ_MCP_AUTH_METHOD".to_string(), auth_method_str.clone());
+    env.insert(
+        "RABBITMQ_MCP_AUTH_METHOD".to_string(),
+        auth_method_str.clone(),
+    );
     env.insert("RABBITMQ_MCP_API_VERSION".to_string(), api_version.clone());
     env.insert("RABBITMQ_MCP_TRANSPORT".to_string(), transport_str.clone());
     for (key, value) in &credentials {

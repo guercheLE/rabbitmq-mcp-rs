@@ -110,9 +110,12 @@ fn targets() -> Vec<PathBuf> {
 /// unsearchable. Lists the specific missing operation IDs so the failure is
 /// actionable.
 fn verify_complete(conn: &rusqlite::Connection, path: &Path) -> anyhow::Result<()> {
-    let endpoints_count: i64 = conn.query_row("SELECT COUNT(*) FROM endpoints", [], |row| row.get(0))?;
+    let endpoints_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM endpoints", [], |row| row.get(0))?;
     let semantic_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM semantic_endpoints", [], |row| row.get(0))?;
+        conn.query_row("SELECT COUNT(*) FROM semantic_endpoints", [], |row| {
+            row.get(0)
+        })?;
 
     if semantic_count == endpoints_count {
         return Ok(());
