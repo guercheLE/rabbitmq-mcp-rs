@@ -9,10 +9,23 @@
 // it from an async runtime.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
+
+use serde_json::{Map, Value};
 
 use rabbitmq_mcp::core::config_schema::{AuthMethod, Transport};
 use rabbitmq_mcp::core::credential_storage::save_credential;
+
+/// Resolves the home directory the same way `core::config_manager` does
+/// (`HOME` then `USERPROFILE` then `.`) so the wizard's "global" choice
+/// writes to exactly the path the runtime loader reads back from.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
 
 fn to_env_key(key: &str) -> String {
     key.to_uppercase()
@@ -109,10 +122,22 @@ async fn prompt_credentials(auth_method: AuthMethod) -> anyhow::Result<HashMap<S
     .await?
 }
 
-async fn prompt_persistence(env: &HashMap<String, String>) -> anyhow::Result<()> {
+/// Persists settings per the operator's choice (Fix 5): a config *file* now
+/// means the exact YAML file/path/key-shape `core::config_manager::load_config`
+/// actually reads back — either the local-cwd file it checks first
+/// (`./rabbitmq-mcp.config.yml`) or the global home-dir file it checks next
+/// (`~/.rabbitmq-mcp/config.yml`) — using flat, unprefixed keys (`url`,
+/// `auth_method`, `api_version`, `transport`, ...) matching `env_overrides`'s
+/// `config_key` column, not the `RABBITMQ_MCP_`-prefixed env-var names.
+/// `config_fields` intentionally excludes credentials — those stay on the
+/// `save_credential`/keychain path and are never written to this file.
+async fn prompt_persistence(
+    config_fields: &Map<String, Value>,
+    env: &HashMap<String, String>,
+) -> anyhow::Result<()> {
     let choices = vec![
-        "Write a .env file",
-        "Write a config.json file",
+        "Write a local config file (./rabbitmq-mcp.config.yml)",
+        "Write a global config file (~/.rabbitmq-mcp/config.yml)",
         "Print a ready-to-run CLI invocation (nothing written to disk)",
     ];
     let selection = tokio::task::spawn_blocking(move || {
@@ -121,18 +146,18 @@ async fn prompt_persistence(env: &HashMap<String, String>) -> anyhow::Result<()>
     .await??;
 
     match selection {
-        "Write a .env file" => {
-            let contents = env
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            std::fs::write(".env", format!("{contents}\n"))?;
-            println!("Wrote .env");
+        "Write a local config file (./rabbitmq-mcp.config.yml)" => {
+            let yaml = serde_yaml::to_string(config_fields)?;
+            std::fs::write("rabbitmq-mcp.config.yml", yaml)?;
+            println!("Wrote ./rabbitmq-mcp.config.yml");
         }
-        "Write a config.json file" => {
-            std::fs::write("config.json", serde_json::to_string_pretty(env)?)?;
-            println!("Wrote config.json");
+        "Write a global config file (~/.rabbitmq-mcp/config.yml)" => {
+            let dir = home_dir().join(".rabbitmq-mcp");
+            std::fs::create_dir_all(&dir)?;
+            let path = dir.join("config.yml");
+            let yaml = serde_yaml::to_string(config_fields)?;
+            std::fs::write(&path, yaml)?;
+            println!("Wrote {}", path.display());
         }
         _ => {
             let flags = env
@@ -221,28 +246,35 @@ pub async fn run_setup_wizard() -> anyhow::Result<()> {
 
     save_credential("active-credentials", &serde_json::to_string(&credentials)?)?;
 
+    let auth_method_str = serde_json::to_value(auth_method)?
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let transport_str = serde_json::to_value(transport)?
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+
     let mut env: HashMap<String, String> = HashMap::new();
-    env.insert("RABBITMQ_MCP_URL".to_string(), url);
-    env.insert(
-        "RABBITMQ_MCP_AUTH_METHOD".to_string(),
-        serde_json::to_value(auth_method)?
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
-    );
-    env.insert("RABBITMQ_MCP_API_VERSION".to_string(), api_version);
-    env.insert(
-        "RABBITMQ_MCP_TRANSPORT".to_string(),
-        serde_json::to_value(transport)?
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
-    );
+    env.insert("RABBITMQ_MCP_URL".to_string(), url.clone());
+    env.insert("RABBITMQ_MCP_AUTH_METHOD".to_string(), auth_method_str.clone());
+    env.insert("RABBITMQ_MCP_API_VERSION".to_string(), api_version.clone());
+    env.insert("RABBITMQ_MCP_TRANSPORT".to_string(), transport_str.clone());
     for (key, value) in &credentials {
         env.insert(format!("RABBITMQ_MCP_{}", to_env_key(key)), value.clone());
     }
 
-    prompt_persistence(&env).await?;
+    // Flat, unprefixed keys matching `config_manager::env_overrides`'s
+    // `config_key` column — this is the shape `load_config`'s YAML layers
+    // actually deserialize. Credentials are deliberately excluded (they
+    // stay on the `save_credential` path only).
+    let mut config_fields = Map::new();
+    config_fields.insert("url".to_string(), Value::String(url));
+    config_fields.insert("auth_method".to_string(), Value::String(auth_method_str));
+    config_fields.insert("api_version".to_string(), Value::String(api_version));
+    config_fields.insert("transport".to_string(), Value::String(transport_str));
+
+    prompt_persistence(&config_fields, &env).await?;
     print_mcp_client_config(transport, auth_method, &env);
 
     let run_command = match transport {

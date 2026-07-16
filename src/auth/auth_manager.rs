@@ -68,6 +68,12 @@ impl AuthManager {
             return self.normalize_credentials(cached).await;
         }
 
+        if let Some(from_env) = self.credentials_from_env() {
+            let normalized = self.normalize_credentials(&from_env).await?;
+            self.cached_credentials = Some(normalized.clone());
+            return Ok(normalized);
+        }
+
         if let Some(stored) = load_credential(CREDENTIAL_ACCOUNT)? {
             let parsed: Credentials = serde_json::from_str(&stored)?;
             if self.strategy.validate_credentials(&parsed) {
@@ -85,6 +91,39 @@ impl AuthManager {
         }
 
         Err(AuthError::NoActiveCredentials(format!("{:?}", self.auth_method)).into())
+    }
+
+    /// Checks the `.env.example`-documented env-var override
+    /// (`RABBITMQ_MCP_TOKEN`/`RABBITMQ_MCP_API_KEY` for token/api-key
+    /// schemes, `RABBITMQ_MCP_USERNAME`+`RABBITMQ_MCP_PASSWORD` for basic
+    /// auth) before falling back to the stored-credential lookup — those
+    /// vars were previously documented but never actually read into the
+    /// auth layer, so only a prior `setup` run's saved credential worked.
+    fn credentials_from_env(&self) -> Option<Credentials> {
+        match self.auth_method {
+            AuthMethod::Basic => {
+                let username = std::env::var("RABBITMQ_MCP_USERNAME").ok()?;
+                let password = std::env::var("RABBITMQ_MCP_PASSWORD").ok()?;
+                let mut credentials = Credentials::new();
+                credentials.insert("username".to_string(), username);
+                credentials.insert("password".to_string(), password);
+                Some(credentials)
+            }
+            #[allow(unreachable_patterns)]
+            _ => {
+                if let Ok(token) = std::env::var("RABBITMQ_MCP_TOKEN") {
+                    let mut credentials = Credentials::new();
+                    credentials.insert("access_token".to_string(), token);
+                    return Some(credentials);
+                }
+                if let Ok(api_key) = std::env::var("RABBITMQ_MCP_API_KEY") {
+                    let mut credentials = Credentials::new();
+                    credentials.insert("api_key".to_string(), api_key);
+                    return Some(credentials);
+                }
+                None
+            }
+        }
     }
 
     async fn normalize_credentials(
@@ -164,7 +203,17 @@ impl AuthManager {
         } else if let Some(header) = credentials.get("authorization_header") {
             headers.insert("Authorization".to_string(), header.clone());
         } else if let Some(api_key) = credentials.get("api_key") {
-            headers.insert("X-Api-Key".to_string(), api_key.clone());
+            // Prefer the scheme's real configured header name when a
+            // strategy provides one; "X-Api-Key" remains the fallback for
+            // schemes that never set `request_header_name` (this crate's
+            // discovered auth scheme is `basic`, so this branch is
+            // currently unreachable at runtime, but is kept consistent
+            // with the other generated language targets).
+            let header_name = credentials
+                .get("request_header_name")
+                .cloned()
+                .unwrap_or_else(|| "X-Api-Key".to_string());
+            headers.insert(header_name, api_key.clone());
         }
         Ok(headers)
     }

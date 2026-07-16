@@ -44,12 +44,22 @@ pub struct GetArgs {
     pub operation_id: String,
 }
 
+/// Every operation's generated input JSON Schema unconditionally declares
+/// `"type": "object"`, even for zero-param operations, so a missing
+/// `arguments` field must default to an empty *object* — `Value::Null`
+/// (what `#[serde(default)]` alone would produce) always fails that
+/// schema's validation.
+fn default_call_arguments() -> serde_json::Value {
+    serde_json::json!({})
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CallArgs {
     /// operationId returned by search
     pub operation_id: String,
-    /// Operation parameters and/or request body
-    #[serde(default)]
+    /// Operation parameters and/or request body. Defaults to `{}` when
+    /// omitted.
+    #[serde(default = "default_call_arguments")]
     pub arguments: serde_json::Value,
 }
 
@@ -218,4 +228,24 @@ where
     tracing::info!("MCP server connected over stdio");
     running.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod call_args_default_tests {
+    use super::CallArgs;
+
+    /// Regression test for the QA-reported bug (Fix 7): a `call` tool
+    /// invocation for `getApiOverview` with the `arguments` field omitted
+    /// entirely must deserialize `arguments` as `{}`, not `null` — every
+    /// operation's generated input JSON Schema declares `"type": "object"`
+    /// even for zero-required-param operations, and `null` always fails
+    /// that validation while `{}` passes.
+    #[test]
+    fn omitted_arguments_defaults_to_an_empty_object_not_null() {
+        let json = serde_json::json!({ "operation_id": "getApiOverview" });
+        let parsed: CallArgs = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.operation_id, "getApiOverview");
+        assert_eq!(parsed.arguments, serde_json::json!({}));
+        assert_ne!(parsed.arguments, serde_json::Value::Null);
+    }
 }

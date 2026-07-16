@@ -85,29 +85,60 @@ fn populate_one(path: &Path) -> anyhow::Result<usize> {
     Ok(count)
 }
 
-/// Which store file(s) to populate: bare invocation targets just
-/// `mcp_store.db` (the default version), matching every deployment that
-/// only ever ships that one file (this project's own Dockerfile
-/// included); an explicit path targets exactly that file; `--all` walks
-/// every version this project's ledger knows about
-/// (`VERSION_STORE_FILES`) — the one-time local backfill needed after
-/// `mcpify add-version` adds a new version file, since each version's
-/// `.db` gets its own independent `semantic_endpoints` table.
+/// Which store file(s) to populate: bare invocation now targets *every*
+/// version this project's ledger knows about (`VERSION_STORE_FILES`),
+/// matching what the generated `Dockerfile` already does explicitly via
+/// `--all` — a bare invocation used to silently populate only
+/// `mcp_store.db`, leaving every other version's store at 0 embedded rows
+/// unless `--all` was remembered. `--all` is kept as an accepted (now
+/// redundant) explicit flag for scripts that already pass it; an explicit
+/// path still targets exactly that one file for a targeted re-run.
 fn targets() -> Vec<PathBuf> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        Some("--all") => VERSION_STORE_FILES
+        Some("--all") | None => VERSION_STORE_FILES
             .iter()
             .map(|(_, file)| PathBuf::from(file))
             .collect(),
         Some(path) => vec![PathBuf::from(path)],
-        None => vec![PathBuf::from("mcp_store.db")],
     }
+}
+
+/// Fails loudly (non-zero exit) instead of allowing a store to be reported
+/// "populated" when `semantic_endpoints` ends up with fewer rows than
+/// `endpoints` — which would otherwise mean some operations are silently
+/// unsearchable. Lists the specific missing operation IDs so the failure is
+/// actionable.
+fn verify_complete(conn: &rusqlite::Connection, path: &Path) -> anyhow::Result<()> {
+    let endpoints_count: i64 = conn.query_row("SELECT COUNT(*) FROM endpoints", [], |row| row.get(0))?;
+    let semantic_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM semantic_endpoints", [], |row| row.get(0))?;
+
+    if semantic_count == endpoints_count {
+        return Ok(());
+    }
+
+    let mut missing_stmt = conn.prepare(
+        "SELECT operation_id FROM endpoints \
+         WHERE operation_id NOT IN (SELECT operation_id FROM semantic_endpoints)",
+    )?;
+    let missing: Vec<String> = missing_stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    anyhow::bail!(
+        "'{}': semantic_endpoints has {semantic_count} row(s) but endpoints has \
+         {endpoints_count} — missing embeddings for operation_id(s): {}",
+        path.display(),
+        missing.join(", ")
+    );
 }
 
 fn main() -> anyhow::Result<()> {
     for path in targets() {
         let count = populate_one(&path)?;
+        let conn = open_store_read_write(&path)?;
+        verify_complete(&conn, &path)?;
         println!(
             "populated embeddings for {count} operation(s) in '{}'",
             path.display()
