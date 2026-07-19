@@ -2,30 +2,18 @@
 //
 // Interactive setup wizard (REQ-1.6): collects the API URL and the
 // credentials the discovered auth scheme(s) need, then persists them per
-// the operator's choice: a .env file, a config.json file, or a
-// ready-to-run CLI invocation printed to stdout (nothing written to disk).
+// the operator's choice: a .env file, a local or global config.yml file,
+// or a ready-to-run CLI invocation printed to stdout (nothing written to
+// disk).
 // `inquire`'s prompts are blocking — run through `spawn_blocking`, the
 // same pattern mcpify's own `auth_profile::prompt` documents for calling
 // it from an async runtime.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::time::Duration;
-
-use serde_json::{Map, Value};
 
 use rabbitmq_mcp::core::config_schema::{AuthMethod, Transport};
 use rabbitmq_mcp::core::credential_storage::save_credential;
-
-/// Resolves the home directory the same way `core::config_manager` does
-/// (`HOME` then `USERPROFILE` then `.`) so the wizard's "global" choice
-/// writes to exactly the path the runtime loader reads back from.
-fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 
 fn to_env_key(key: &str) -> String {
     key.to_uppercase()
@@ -101,10 +89,10 @@ async fn prompt_transport() -> anyhow::Result<Transport> {
 }
 
 async fn prompt_credentials(auth_method: AuthMethod) -> anyhow::Result<HashMap<String, String>> {
-    tokio::task::spawn_blocking(move || -> anyhow::Result<HashMap<String, String>> {
-        let mut credentials = HashMap::new();
-        match auth_method {
-            AuthMethod::Basic => {
+    match auth_method {
+        AuthMethod::Basic => {
+            tokio::task::spawn_blocking(move || -> anyhow::Result<HashMap<String, String>> {
+                let mut credentials = HashMap::new();
                 credentials.insert(
                     "username".to_string(),
                     inquire::Text::new("Username:").prompt()?,
@@ -115,29 +103,49 @@ async fn prompt_credentials(auth_method: AuthMethod) -> anyhow::Result<HashMap<S
                         .without_confirmation()
                         .prompt()?,
                 );
-            }
+                Ok(credentials)
+            })
+            .await?
         }
-        Ok(credentials)
-    })
-    .await?
+    }
 }
 
-/// Persists settings per the operator's choice (Fix 5): a config *file* now
-/// means the exact YAML file/path/key-shape `core::config_manager::load_config`
-/// actually reads back — either the local-cwd file it checks first
-/// (`./rabbitmq-mcp.config.yml`) or the global home-dir file it checks next
-/// (`~/.rabbitmq-mcp/config.yml`) — using flat, unprefixed keys (`url`,
-/// `auth_method`, `api_version`, `transport`, ...) matching `env_overrides`'s
-/// `config_key` column, not the `RABBITMQ_MCP_`-prefixed env-var names.
-/// `config_fields` intentionally excludes credentials — those stay on the
-/// `save_credential`/keychain path and are never written to this file.
+/// Persists the non-secret config fields (`url`/`auth_method`/`api_version`/
+/// `transport`) as YAML matching exactly what `config_manager::load_config`
+/// reads back — never the credential fields, which stay in the OS
+/// keychain/encrypted-file fallback via `save_credential` (called by the
+/// caller before this runs). Writing anywhere else (a stray `.env`-only
+/// var name, `config.json`, etc.) would leave the persisted config silently
+/// ignored on every subsequent run, since `load_config`'s cascade only ever
+/// reads `./rabbitmq-mcp.config.yml` (local) or
+/// `~/.rabbitmq-mcp/config.yml` (global).
+async fn write_config_yaml(
+    path: &std::path::Path,
+    config_fields: &serde_json::Value,
+) -> anyhow::Result<()> {
+    let yaml = serde_yaml::to_string(config_fields)?;
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, yaml)?;
+    println!("Wrote {}", path.display());
+    println!(
+        "Credentials are never written to this file — they're stored via the OS \
+         keychain/encrypted-file fallback from the credential prompt above."
+    );
+    Ok(())
+}
+
 async fn prompt_persistence(
-    config_fields: &Map<String, Value>,
     env: &HashMap<String, String>,
+    config_fields: &serde_json::Value,
 ) -> anyhow::Result<()> {
     let choices = vec![
-        "Write a local config file (./rabbitmq-mcp.config.yml)",
-        "Write a global config file (~/.rabbitmq-mcp/config.yml)",
+        "Write a .env file",
+        "Write a config.yml file (global — ~/.rabbitmq-mcp/config.yml, read on every invocation on this machine)",
+        "Write a config.yml file (local — ./rabbitmq-mcp.config.yml, read only from this directory)",
         "Print a ready-to-run CLI invocation (nothing written to disk)",
     ];
     let selection = tokio::task::spawn_blocking(move || {
@@ -145,19 +153,42 @@ async fn prompt_persistence(
     })
     .await??;
 
+    persist_selection(selection, env, config_fields).await
+}
+
+async fn persist_selection(
+    selection: &str,
+    env: &HashMap<String, String>,
+    config_fields: &serde_json::Value,
+) -> anyhow::Result<()> {
+    let local_dir = std::env::current_dir()?;
+    let global_config =
+        rabbitmq_mcp::core::credential_storage::resolve_home_dir().join(".rabbitmq-mcp/config.yml");
+    persist_selection_at(selection, env, config_fields, &local_dir, &global_config).await
+}
+
+async fn persist_selection_at(
+    selection: &str,
+    env: &HashMap<String, String>,
+    config_fields: &serde_json::Value,
+    local_dir: &std::path::Path,
+    global_config: &std::path::Path,
+) -> anyhow::Result<()> {
     match selection {
-        "Write a local config file (./rabbitmq-mcp.config.yml)" => {
-            let yaml = serde_yaml::to_string(config_fields)?;
-            std::fs::write("rabbitmq-mcp.config.yml", yaml)?;
-            println!("Wrote ./rabbitmq-mcp.config.yml");
+        "Write a .env file" => {
+            let contents = env
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            std::fs::write(local_dir.join(".env"), format!("{contents}\n"))?;
+            println!("Wrote .env");
         }
-        "Write a global config file (~/.rabbitmq-mcp/config.yml)" => {
-            let dir = home_dir().join(".rabbitmq-mcp");
-            std::fs::create_dir_all(&dir)?;
-            let path = dir.join("config.yml");
-            let yaml = serde_yaml::to_string(config_fields)?;
-            std::fs::write(&path, yaml)?;
-            println!("Wrote {}", path.display());
+        s if s.starts_with("Write a config.yml file (global") => {
+            write_config_yaml(global_config, config_fields).await?;
+        }
+        s if s.starts_with("Write a config.yml file (local") => {
+            write_config_yaml(&local_dir.join("rabbitmq-mcp.config.yml"), config_fields).await?;
         }
         _ => {
             let flags = env
@@ -171,6 +202,43 @@ async fn prompt_persistence(
         }
     }
     Ok(())
+}
+
+fn build_runtime_settings(
+    url: String,
+    auth_method: AuthMethod,
+    api_version: String,
+    transport: Transport,
+    credentials: &HashMap<String, String>,
+) -> anyhow::Result<(HashMap<String, String>, serde_json::Value)> {
+    let mut env = HashMap::new();
+    env.insert("RABBITMQ_MCP_URL".to_string(), url);
+    env.insert(
+        "RABBITMQ_MCP_AUTH_METHOD".to_string(),
+        serde_json::to_value(auth_method)?
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+    );
+    env.insert("RABBITMQ_MCP_API_VERSION".to_string(), api_version);
+    env.insert(
+        "RABBITMQ_MCP_TRANSPORT".to_string(),
+        serde_json::to_value(transport)?
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+    );
+    for (key, value) in credentials {
+        env.insert(format!("RABBITMQ_MCP_{}", to_env_key(key)), value.clone());
+    }
+
+    let config_fields = serde_json::json!({
+        "url": env.get("RABBITMQ_MCP_URL"),
+        "auth_method": env.get("RABBITMQ_MCP_AUTH_METHOD"),
+        "api_version": env.get("RABBITMQ_MCP_API_VERSION"),
+        "transport": env.get("RABBITMQ_MCP_TRANSPORT"),
+    });
+    Ok((env, config_fields))
 }
 
 /// Prints a ready-to-use MCP client config (the `mcpServers` block a host
@@ -246,38 +314,10 @@ pub async fn run_setup_wizard() -> anyhow::Result<()> {
 
     save_credential("active-credentials", &serde_json::to_string(&credentials)?)?;
 
-    let auth_method_str = serde_json::to_value(auth_method)?
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
-    let transport_str = serde_json::to_value(transport)?
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let (env, config_fields) =
+        build_runtime_settings(url, auth_method, api_version, transport, &credentials)?;
 
-    let mut env: HashMap<String, String> = HashMap::new();
-    env.insert("RABBITMQ_MCP_URL".to_string(), url.clone());
-    env.insert(
-        "RABBITMQ_MCP_AUTH_METHOD".to_string(),
-        auth_method_str.clone(),
-    );
-    env.insert("RABBITMQ_MCP_API_VERSION".to_string(), api_version.clone());
-    env.insert("RABBITMQ_MCP_TRANSPORT".to_string(), transport_str.clone());
-    for (key, value) in &credentials {
-        env.insert(format!("RABBITMQ_MCP_{}", to_env_key(key)), value.clone());
-    }
-
-    // Flat, unprefixed keys matching `config_manager::env_overrides`'s
-    // `config_key` column — this is the shape `load_config`'s YAML layers
-    // actually deserialize. Credentials are deliberately excluded (they
-    // stay on the `save_credential` path only).
-    let mut config_fields = Map::new();
-    config_fields.insert("url".to_string(), Value::String(url));
-    config_fields.insert("auth_method".to_string(), Value::String(auth_method_str));
-    config_fields.insert("api_version".to_string(), Value::String(api_version));
-    config_fields.insert("transport".to_string(), Value::String(transport_str));
-
-    prompt_persistence(&config_fields, &env).await?;
+    prompt_persistence(&env, &config_fields).await?;
     print_mcp_client_config(transport, auth_method, &env);
 
     let run_command = match transport {
@@ -286,4 +326,97 @@ pub async fn run_setup_wizard() -> anyhow::Result<()> {
     };
     println!("Setup complete! Run: rabbitmq-mcp {run_command}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_settings_keep_config_fields_and_filter_ephemeral_oauth_values() {
+        let credentials = HashMap::from([
+            ("client_id".to_string(), "client".to_string()),
+            ("authorization_code".to_string(), "spent-code".to_string()),
+        ]);
+        let (env, config) = build_runtime_settings(
+            "https://api.example/v1".to_string(),
+            AuthMethod::Basic,
+            "4.3.2".to_string(),
+            Transport::Stdio,
+            &credentials,
+        )
+        .unwrap();
+
+        assert_eq!(config["url"], "https://api.example/v1");
+        assert_eq!(config["transport"], "stdio");
+        assert_eq!(env["RABBITMQ_MCP_CLIENT_ID"], "client");
+        assert_eq!(env["RABBITMQ_MCP_AUTHORIZATION_CODE"], "spent-code");
+    }
+
+    #[tokio::test]
+    async fn noninteractive_output_paths_cover_both_transports() {
+        let credentials = HashMap::new();
+        let (env, config) = build_runtime_settings(
+            "https://api.example/v1".to_string(),
+            prompt_auth_method().await.unwrap(),
+            prompt_api_version().await.unwrap(),
+            Transport::Http,
+            &credentials,
+        )
+        .unwrap();
+        persist_selection("Print a ready-to-run CLI invocation", &env, &config)
+            .await
+            .unwrap();
+        print_mcp_client_config(Transport::Stdio, AuthMethod::Basic, &env);
+        print_mcp_client_config(Transport::Http, AuthMethod::Basic, &env);
+    }
+
+    #[tokio::test]
+    async fn file_persistence_writes_env_local_yaml_and_global_yaml() {
+        let dir = tempfile::tempdir().unwrap();
+        let local_dir = dir.path().join("local");
+        let global_config = dir.path().join("global/config.yml");
+        std::fs::create_dir_all(&local_dir).unwrap();
+
+        let credentials = HashMap::new();
+        let (env, config) = build_runtime_settings(
+            "https://api.example/v1".to_string(),
+            AuthMethod::Basic,
+            "4.3.2".to_string(),
+            Transport::Stdio,
+            &credentials,
+        )
+        .unwrap();
+        persist_selection_at(
+            "Write a .env file",
+            &env,
+            &config,
+            &local_dir,
+            &global_config,
+        )
+        .await
+        .unwrap();
+        persist_selection_at(
+            "Write a config.yml file (local — ./rabbitmq-mcp.config.yml, read only from this directory)",
+            &env,
+            &config,
+            &local_dir,
+            &global_config,
+        )
+        .await
+        .unwrap();
+        persist_selection_at(
+            "Write a config.yml file (global — ~/.rabbitmq-mcp/config.yml, read on every invocation on this machine)",
+            &env,
+            &config,
+            &local_dir,
+            &global_config,
+        )
+        .await
+        .unwrap();
+
+        assert!(local_dir.join(".env").is_file());
+        assert!(local_dir.join("rabbitmq-mcp.config.yml").is_file());
+        assert!(global_config.is_file());
+    }
 }

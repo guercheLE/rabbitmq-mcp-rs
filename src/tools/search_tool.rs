@@ -5,28 +5,31 @@ use rusqlite::Connection;
 use crate::data::store::search_endpoints;
 use crate::services::embedding_service::embed;
 
-/// Cheap diagnostic: warns (does not fail the search) when the active
-/// store's `semantic_endpoints` table has fewer rows than `endpoints` —
-/// a sign that `populate_embeddings` was run against an older/incomplete
-/// state, so some operations can never surface as search results even
-/// though they legitimately exist. Never changes the success/`[]`-results
-/// contract for a query that just has no good semantic match.
-fn warn_if_incomplete(conn: &Connection) {
+/// Cheap diagnostic: compares `semantic_endpoints` row count against
+/// `endpoints` row count for the store behind `conn`. A store can end up
+/// with `endpoints` rows but no matching `semantic_endpoints` rows if the
+/// `populate-embeddings` step silently skipped or partially failed some
+/// rows — this surfaces that as a warning without changing the
+/// success/`[]` return contract for legitimately-empty search results.
+fn warn_if_embeddings_incomplete(conn: &Connection) -> bool {
     let counts: rusqlite::Result<(i64, i64)> = conn.query_row(
         "SELECT (SELECT COUNT(*) FROM endpoints), (SELECT COUNT(*) FROM semantic_endpoints)",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
     );
+    let incomplete = matches!(&counts, Ok((endpoints_count, semantic_count)) if semantic_count < endpoints_count);
     if let Ok((endpoints_count, semantic_count)) = counts
-        && semantic_count < endpoints_count
+        && incomplete
     {
         tracing::warn!(
             endpoints_count,
             semantic_count,
-            "semantic_endpoints is missing rows for this store — run populate-embeddings to \
-             backfill; some operations will not surface in search results"
+            "semantic_endpoints is missing {} row(s) compared to endpoints — search results \
+             may be incomplete; re-run populate-embeddings for this store",
+            endpoints_count - semantic_count
         );
     }
+    incomplete
 }
 
 /// Semantic similarity lookup matching a natural-language query against
@@ -37,8 +40,28 @@ pub fn search_operations(
     query: &str,
     limit: usize,
 ) -> anyhow::Result<serde_json::Value> {
-    warn_if_incomplete(conn);
+    warn_if_embeddings_incomplete(conn);
     let query_embedding = embed(query)?;
     let results = search_endpoints(conn, &query_embedding, limit)?;
     Ok(serde_json::to_value(results)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_embedding_catalog_diagnostic_handles_every_count_shape() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE endpoints (operation_id TEXT); \
+             CREATE TABLE semantic_endpoints (operation_id TEXT); \
+             INSERT INTO endpoints VALUES ('missing');",
+        )
+        .unwrap();
+        assert!(warn_if_embeddings_incomplete(&conn));
+        conn.execute("INSERT INTO semantic_endpoints VALUES ('missing')", [])
+            .unwrap();
+        assert!(!warn_if_embeddings_incomplete(&conn));
+    }
 }

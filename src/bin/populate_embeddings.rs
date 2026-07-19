@@ -11,10 +11,74 @@
 // array string — `services::embedding_service`'s `search`-side query code
 // (Story R6) must encode/decode with this exact same byte layout.
 
+use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use rabbitmq_mcp::data::store::{VERSION_STORE_FILES, open_store_read_write};
 use rabbitmq_mcp::services::embedding_service::embed;
+
+/// Compression level for the `.db.zst` sibling this binary leaves behind —
+/// matches the level `store.rs`'s embedded `VERSION_STORE_BYTES` were
+/// produced with, so re-running this binary never silently regresses the
+/// published package size.
+const ZSTD_LEVEL: i32 = 19;
+
+/// Returns `path`'s zstd sibling, e.g. `mcp_store.db` -> `mcp_store.db.zst`.
+fn zst_sibling(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".zst");
+    PathBuf::from(name)
+}
+
+/// Ensures a real, uncompressed `.db` file exists at `path` for SQLite to
+/// open read-write: if only the `.db.zst` sibling exists (the normal state
+/// once a store has been compressed and committed), decompresses it into
+/// place first. If both somehow exist, the raw `.db` is left untouched and
+/// treated as the working copy — `.zst` is regenerated from it below.
+fn ensure_raw_db(path: &Path) -> anyhow::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    let zst_path = zst_sibling(path);
+    let compressed = std::fs::read(&zst_path).with_context(|| {
+        format!(
+            "neither '{}' nor '{}' exists",
+            path.display(),
+            zst_path.display()
+        )
+    })?;
+    let decompressed = zstd::stream::decode_all(compressed.as_slice())
+        .with_context(|| format!("failed to decompress '{}'", zst_path.display()))?;
+    std::fs::write(path, decompressed)
+        .with_context(|| format!("failed to write decompressed '{}'", path.display()))?;
+    Ok(())
+}
+
+/// Re-compresses the raw `.db` at `path` into its `.db.zst` sibling, then
+/// removes the raw file — the working copy this binary operates on must
+/// never linger on disk afterward (it would otherwise risk getting
+/// accidentally committed, and the raw file is exactly what pushes the
+/// published crate package over crates.io's 10MiB limit).
+fn recompress_and_remove_raw(path: &Path) -> anyhow::Result<()> {
+    let raw =
+        std::fs::read(path).with_context(|| format!("failed to read '{}'", path.display()))?;
+    let compressed = zstd::stream::encode_all(raw.as_slice(), ZSTD_LEVEL)
+        .with_context(|| format!("failed to zstd-compress '{}'", path.display()))?;
+    let zst_path = zst_sibling(path);
+    let mut file = File::create(&zst_path)
+        .with_context(|| format!("failed to create '{}'", zst_path.display()))?;
+    file.write_all(&compressed)
+        .with_context(|| format!("failed to write '{}'", zst_path.display()))?;
+    std::fs::remove_file(path).with_context(|| {
+        format!(
+            "failed to remove raw '{}' after recompressing",
+            path.display()
+        )
+    })?;
+    Ok(())
+}
 
 struct EndpointRow {
     operation_id: String,
@@ -32,7 +96,10 @@ fn vector_to_le_bytes(vector: &[f32]) -> Vec<u8> {
 }
 
 /// Populates one store file's `semantic_endpoints` table in place,
-/// returning how many operations were (re)indexed.
+/// returning how many operations were (re)indexed. Any single row's
+/// embedding computation/insert failing propagates as a hard error via `?`
+/// (never silently skipped) — a partially-embedded store is worse than a
+/// script that stops and reports exactly which operation broke.
 fn populate_one(path: &Path) -> anyhow::Result<usize> {
     let conn = open_store_read_write(path)?;
 
@@ -64,6 +131,7 @@ fn populate_one(path: &Path) -> anyhow::Result<usize> {
     // an acceptable trade for a one-time setup script.
     let count = rows.len();
     for row in rows {
+        let operation_id = row.operation_id.clone();
         let text = [
             Some(row.method),
             Some(row.path),
@@ -74,7 +142,12 @@ fn populate_one(path: &Path) -> anyhow::Result<usize> {
         .flatten()
         .collect::<Vec<_>>()
         .join(" ");
-        let vector = embed(&text)?;
+        let vector = embed(&text).map_err(|err| {
+            anyhow::anyhow!(
+                "failed to compute embedding for '{operation_id}' in '{}': {err}",
+                path.display()
+            )
+        })?;
         delete.execute(rusqlite::params![row.operation_id])?;
         insert.execute(rusqlite::params![
             row.operation_id,
@@ -85,16 +158,33 @@ fn populate_one(path: &Path) -> anyhow::Result<usize> {
     Ok(count)
 }
 
-/// Which store file(s) to populate: bare invocation now targets *every*
-/// version this project's ledger knows about (`VERSION_STORE_FILES`),
-/// matching what the generated `Dockerfile` already does explicitly via
-/// `--all` — a bare invocation used to silently populate only
-/// `mcp_store.db`, leaving every other version's store at 0 embedded rows
-/// unless `--all` was remembered. `--all` is kept as an accepted (now
-/// redundant) explicit flag for scripts that already pass it; an explicit
-/// path still targets exactly that one file for a targeted re-run.
-fn targets() -> Vec<PathBuf> {
-    let mut args = std::env::args().skip(1);
+/// Verifies `semantic_endpoints` row count equals `endpoints` row count for
+/// the store at `path` — a store can end up with `endpoints` rows but no
+/// matching `semantic_endpoints` rows if embedding generation/insertion was
+/// silently skipped or partially failed for some rows, and that must not be
+/// allowed to pass as "populated". Returns the operation IDs present in
+/// `endpoints` but missing from `semantic_endpoints` when counts diverge.
+fn missing_operation_ids(path: &Path) -> anyhow::Result<Vec<String>> {
+    let conn = open_store_read_write(path)?;
+    let mut select = conn.prepare(
+        "SELECT e.operation_id FROM endpoints e \
+         LEFT JOIN semantic_endpoints s ON s.operation_id = e.operation_id \
+         WHERE s.operation_id IS NULL",
+    )?;
+    let missing: Vec<String> = select
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(missing)
+}
+
+/// Which store file(s) to populate: bare invocation (and `--all`) both walk
+/// every version this project's ledger knows about (`VERSION_STORE_FILES`)
+/// — defaulting to just the default version's store left every other
+/// version's `semantic_endpoints` table at 0 rows unless `--all` was passed
+/// explicitly, so the safe default is "populate everything". An explicit
+/// path argument still targets exactly that one file, for a targeted
+/// re-run.
+fn targets_from(mut args: impl Iterator<Item = String>) -> Vec<PathBuf> {
     match args.next().as_deref() {
         Some("--all") | None => VERSION_STORE_FILES
             .iter()
@@ -104,48 +194,66 @@ fn targets() -> Vec<PathBuf> {
     }
 }
 
-/// Fails loudly (non-zero exit) instead of allowing a store to be reported
-/// "populated" when `semantic_endpoints` ends up with fewer rows than
-/// `endpoints` — which would otherwise mean some operations are silently
-/// unsearchable. Lists the specific missing operation IDs so the failure is
-/// actionable.
-fn verify_complete(conn: &rusqlite::Connection, path: &Path) -> anyhow::Result<()> {
-    let endpoints_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM endpoints", [], |row| row.get(0))?;
-    let semantic_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM semantic_endpoints", [], |row| {
-            row.get(0)
-        })?;
-
-    if semantic_count == endpoints_count {
-        return Ok(());
-    }
-
-    let mut missing_stmt = conn.prepare(
-        "SELECT operation_id FROM endpoints \
-         WHERE operation_id NOT IN (SELECT operation_id FROM semantic_endpoints)",
-    )?;
-    let missing: Vec<String> = missing_stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-
-    anyhow::bail!(
-        "'{}': semantic_endpoints has {semantic_count} row(s) but endpoints has \
-         {endpoints_count} — missing embeddings for operation_id(s): {}",
-        path.display(),
-        missing.join(", ")
-    );
+fn targets() -> Vec<PathBuf> {
+    targets_from(std::env::args().skip(1))
 }
 
 fn main() -> anyhow::Result<()> {
+    let mut had_mismatch = false;
     for path in targets() {
+        // SQLite needs a real uncompressed file to write into — if only
+        // the `.db.zst` sibling is present (the normal committed state),
+        // decompress it into place first.
+        ensure_raw_db(&path)?;
+
         let count = populate_one(&path)?;
-        let conn = open_store_read_write(&path)?;
-        verify_complete(&conn, &path)?;
         println!(
             "populated embeddings for {count} operation(s) in '{}'",
             path.display()
         );
+
+        let missing = missing_operation_ids(&path)?;
+        if !missing.is_empty() {
+            had_mismatch = true;
+            eprintln!(
+                "ERROR: '{}' has {} endpoint(s) missing from semantic_endpoints (row-count \
+                 parity check failed): {}",
+                path.display(),
+                missing.len(),
+                missing.join(", ")
+            );
+        }
+
+        // On failure above, `?` already propagated and left the raw `.db`
+        // on disk (not recompressed) so it's available for inspection —
+        // only a fully processed path gets folded back into the `.db.zst`
+        // this binary must always end by leaving behind.
+        recompress_and_remove_raw(&path)?;
+    }
+    if had_mismatch {
+        anyhow::bail!(
+            "embedding population incomplete: one or more stores have semantic_endpoints \
+             row counts below their endpoints row counts (see errors above)"
+        );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_selection_covers_defaults_all_and_explicit_paths_without_mutating_stores() {
+        let expected = VERSION_STORE_FILES
+            .iter()
+            .map(|(_, file)| PathBuf::from(file))
+            .collect::<Vec<_>>();
+        assert_eq!(targets_from(std::iter::empty()), expected);
+        assert_eq!(targets_from(["--all".to_string()].into_iter()), expected);
+        assert_eq!(
+            targets_from(["copy.db".to_string()].into_iter()),
+            vec![PathBuf::from("copy.db")]
+        );
+    }
 }

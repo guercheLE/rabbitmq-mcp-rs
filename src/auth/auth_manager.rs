@@ -10,6 +10,30 @@ use super::strategies::basic::BasicAuthStrategy;
 use super::strategies::stub::StubAuthStrategy;
 
 const CREDENTIAL_ACCOUNT: &str = "active-credentials";
+const ENV_PREFIX: &str = "RABBITMQ_MCP";
+
+/// Builds an `AuthConfig` straight from the `<PREFIX>_TOKEN`/`_API_KEY`/
+/// `_USERNAME`/`_PASSWORD` env vars documented in `.env.example`, if the
+/// vars this `auth_method` needs are actually set — closes the gap where
+/// those vars were documented but never wired into the credentials lookup,
+/// leaving a prior `setup` run (keychain/file) as the only way to
+/// authenticate. Returns `None` when the required var(s) for this
+/// deployment's `auth_method` aren't present, so callers fall back to the
+/// stored-credential lookup unchanged.
+fn credentials_from_env(auth_method: AuthMethod) -> Option<AuthConfig> {
+    let mut config = AuthConfig::new();
+    match auth_method {
+        AuthMethod::Basic => {
+            let username = std::env::var(format!("{ENV_PREFIX}_USERNAME")).ok()?;
+            let password = std::env::var(format!("{ENV_PREFIX}_PASSWORD")).ok()?;
+            config.insert("username".to_string(), username);
+            config.insert("password".to_string(), password);
+        }
+        #[allow(unreachable_patterns)]
+        _ => return None,
+    }
+    Some(config)
+}
 
 fn strategy_for(auth_method: AuthMethod) -> Box<dyn AuthStrategy> {
     match auth_method {
@@ -68,10 +92,12 @@ impl AuthManager {
             return self.normalize_credentials(cached).await;
         }
 
-        if let Some(from_env) = self.credentials_from_env() {
-            let normalized = self.normalize_credentials(&from_env).await?;
-            self.cached_credentials = Some(normalized.clone());
-            return Ok(normalized);
+        if let Some(env_config) = credentials_from_env(self.auth_method)
+            && let Ok(from_env) = self.strategy.authenticate(&env_config).await
+            && self.strategy.validate_credentials(&from_env)
+        {
+            self.cached_credentials = Some(from_env.clone());
+            return Ok(from_env);
         }
 
         if let Some(stored) = load_credential(CREDENTIAL_ACCOUNT)? {
@@ -102,39 +128,6 @@ impl AuthManager {
         }
 
         Err(AuthError::NoActiveCredentials(format!("{:?}", self.auth_method)).into())
-    }
-
-    /// Checks the `.env.example`-documented env-var override
-    /// (`RABBITMQ_MCP_TOKEN`/`RABBITMQ_MCP_API_KEY` for token/api-key
-    /// schemes, `RABBITMQ_MCP_USERNAME`+`RABBITMQ_MCP_PASSWORD` for basic
-    /// auth) before falling back to the stored-credential lookup — those
-    /// vars were previously documented but never actually read into the
-    /// auth layer, so only a prior `setup` run's saved credential worked.
-    fn credentials_from_env(&self) -> Option<Credentials> {
-        match self.auth_method {
-            AuthMethod::Basic => {
-                let username = std::env::var("RABBITMQ_MCP_USERNAME").ok()?;
-                let password = std::env::var("RABBITMQ_MCP_PASSWORD").ok()?;
-                let mut credentials = Credentials::new();
-                credentials.insert("username".to_string(), username);
-                credentials.insert("password".to_string(), password);
-                Some(credentials)
-            }
-            #[allow(unreachable_patterns)]
-            _ => {
-                if let Ok(token) = std::env::var("RABBITMQ_MCP_TOKEN") {
-                    let mut credentials = Credentials::new();
-                    credentials.insert("access_token".to_string(), token);
-                    return Some(credentials);
-                }
-                if let Ok(api_key) = std::env::var("RABBITMQ_MCP_API_KEY") {
-                    let mut credentials = Credentials::new();
-                    credentials.insert("api_key".to_string(), api_key);
-                    return Some(credentials);
-                }
-                None
-            }
-        }
     }
 
     async fn normalize_credentials(
@@ -205,21 +198,16 @@ impl AuthManager {
         let _ = method;
         let _ = url;
 
-        if let Some(name) = credentials.get("request_header_name") {
-            let value = credentials
-                .get("request_header_value")
-                .cloned()
-                .unwrap_or_default();
-            headers.insert(name.clone(), value);
+        if let (Some(name), Some(value)) = (
+            credentials.get("request_header_name"),
+            credentials.get("request_header_value"),
+        ) {
+            // HTTP-transport relay case: both name and value came from the
+            // caller's own incoming request (`RequestCredentials`).
+            headers.insert(name.clone(), value.clone());
         } else if let Some(header) = credentials.get("authorization_header") {
             headers.insert("Authorization".to_string(), header.clone());
         } else if let Some(api_key) = credentials.get("api_key") {
-            // Prefer the scheme's real configured header name when a
-            // strategy provides one; "X-Api-Key" remains the fallback for
-            // schemes that never set `request_header_name` (this crate's
-            // discovered auth scheme is `basic`, so this branch is
-            // currently unreachable at runtime, but is kept consistent
-            // with the other generated language targets).
             let header_name = credentials
                 .get("request_header_name")
                 .cloned()

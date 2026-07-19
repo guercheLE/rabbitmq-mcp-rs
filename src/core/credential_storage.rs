@@ -11,12 +11,12 @@ use sha2::{Digest, Sha256};
 
 const SERVICE_NAME: &str = "rabbitmq-mcp";
 
-/// Resolves the current user's home directory, trying `HOME` first (set on
-/// macOS/Linux and in most containers), then `USERPROFILE` (the Windows
-/// equivalent — `HOME` is not reliably set there), then falling back to the
-/// current directory so this never panics on an exotic environment where
-/// neither is set.
-fn resolve_home_dir() -> PathBuf {
+/// Resolves the user's home directory cross-platform: `HOME` (Unix/macOS),
+/// falling back to `USERPROFILE` (Windows), falling back to the current
+/// directory if neither is set — without this fallback, Windows deployments
+/// silently resolve config/credential paths to `.` (cwd) instead of erroring
+/// or using the user's actual profile directory.
+pub fn resolve_home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
@@ -149,9 +149,9 @@ pub fn load_credential(account: &str) -> anyhow::Result<Option<String>> {
         Ok(password) => Ok(Some(password)),
         // A clean "no entry" from the keychain doesn't rule out a
         // credential that only ever landed in the encrypted-file fallback
-        // (e.g. saved while the keychain backend was unavailable) — check
-        // there (same as any other keychain error) before reporting
-        // nothing found.
+        // (e.g. saved while the keychain backend was unavailable) — always
+        // consult the file before reporting nothing found, whether the
+        // keychain returned `NoEntry` or a harder error.
         Err(_) => load_from_file(account),
     }
 }

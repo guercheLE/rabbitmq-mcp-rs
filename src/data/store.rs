@@ -32,11 +32,11 @@ pub const VERSION_STORE_FILES: &[(&str, &str)] = &[
 ];
 
 const VERSION_STORE_BYTES: &[(&str, &[u8])] = &[
-    ("4.3.2", include_bytes!("../../mcp_store.db")),
-    ("4.2.8", include_bytes!("../../mcp_store_v4.2.8.db")),
-    ("4.1.8", include_bytes!("../../mcp_store_v4.1.8.db")),
-    ("4.0.9", include_bytes!("../../mcp_store_v4.0.9.db")),
-    ("3.13.7", include_bytes!("../../mcp_store_v3.13.7.db")),
+    ("4.3.2", include_bytes!("../../mcp_store.db.zst")),
+    ("4.2.8", include_bytes!("../../mcp_store_v4.2.8.db.zst")),
+    ("4.1.8", include_bytes!("../../mcp_store_v4.1.8.db.zst")),
+    ("4.0.9", include_bytes!("../../mcp_store_v4.0.9.db.zst")),
+    ("3.13.7", include_bytes!("../../mcp_store_v3.13.7.db.zst")),
 ];
 // mcpify:versions:end
 
@@ -89,13 +89,20 @@ pub fn resolve_store_path(api_version: &str) -> Result<PathBuf> {
     // the same directory is atomic on both POSIX and Windows, so every
     // reader sees either the complete previous copy or the complete new
     // one, never a partial write.
+    //
+    // `bytes` is the zstd-compressed `.db.zst` payload (see
+    // `VERSION_STORE_BYTES`), not a valid SQLite file itself — it must be
+    // decompressed before `rusqlite::Connection::open` can read it.
+    let decompressed = zstd::stream::decode_all(bytes).with_context(|| {
+        format!("failed to decompress embedded store data for api_version '{api_version}'")
+    })?;
     static UNIQUE: AtomicU64 = AtomicU64::new(0);
     let tmp_path = dir.join(format!(
         "{file}.{}.{}.tmp",
         std::process::id(),
         UNIQUE.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::write(&tmp_path, bytes).with_context(|| {
+    std::fs::write(&tmp_path, decompressed).with_context(|| {
         format!(
             "failed to extract embedded store data to '{}'",
             tmp_path.display()
