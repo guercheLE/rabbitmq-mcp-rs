@@ -77,7 +77,7 @@ impl ServerHandler for McpifyServer {
         .with_instructions(
             "Exposes exactly 3 tools -- search, get, call -- backed by an embedded \
              semantic database, so you never need the full API surface in context. \
-             Also exposes MCP prompts -- start with the `rabbitmq_workflow` prompt for \
+             Also exposes MCP prompts -- start with the `rabbitmq` prompt for \
              guided, multi-step help with common RabbitMQ management tasks."
                 .to_string(),
         )
@@ -95,14 +95,14 @@ Mirrors the existing `SearchArgs`/`GetArgs`/`CallArgs` + `#[tool(...)]` pattern:
 #[prompt_router]
 impl McpifyServer {
     #[prompt(
-        name = "rabbitmq_workflow",
+        name = "rabbitmq",
         description = "Start here. Presents the available RabbitMQ management workflows, \
                         routes to the right guided sub-workflow based on the user's goal, \
                         and — where the environment supports it — delegates that whole \
                         sub-workflow to an isolated sub-task to spare this conversation's \
                         context window."
     )]
-    async fn rabbitmq_workflow_prompt(
+    async fn rabbitmq_prompt(
         &self,
         Parameters(args): Parameters<MasterWorkflowArgs>,
     ) -> Vec<PromptMessage> {
@@ -125,23 +125,23 @@ Argument structs go in `src/prompts/mod.rs`, `#[derive(Deserialize, schemars::Js
 
 | name | description | arguments |
 |---|---|---|
-| `rabbitmq_workflow` | Master index; menu + goal-based routing | `goal: Option<String>` |
-| `rabbitmq_workflow_queues` | List/inspect/create/delete/purge queues, queue actions, bindings-on-a-queue, get/publish messages, rebalance | none |
-| `rabbitmq_workflow_exchanges` | List/inspect/create/delete exchanges, bindings by source/destination, publish | none |
-| `rabbitmq_workflow_bindings` | List bindings (all/by vhost), bind/unbind exchange↔queue and exchange↔exchange | none |
-| `rabbitmq_workflow_dead_letter` | Guided DLX/DLQ setup, including the create-time-vs-policy fork | `vhost`, `source_queue`, `dlx_name`, `dlq_name` |
-| `rabbitmq_workflow_vhosts` | Vhost lifecycle, per-vhost limits, deletion protection, per-vhost channels/connections | none |
-| `rabbitmq_workflow_users_permissions` | User lifecycle, bulk-delete, vhost/topic permissions, per-user limits/queues | none |
-| `rabbitmq_workflow_policies` | Policies and operator-policy overrides (cross-references dead-letter/HA/TTL use cases) | none |
-| `rabbitmq_workflow_federation_shovel` | Explains the `parameters`/`global-parameters` indirection for federation upstreams and shovels; read-only `federation-links` status | none |
-| `rabbitmq_workflow_definitions_backup_restore` | Export/import full-cluster or per-vhost definitions | `vhost: Option<String>` |
-| `rabbitmq_workflow_monitoring_diagnostics` | Thin pointer to the right read-only signal (connections, channels, consumers, streams, health checks, overview, auth attempts, whoami) — deliberately not a multi-step guided flow, kept as its own prompt purely for `prompts/list` discoverability | none |
+| `rabbitmq` | Master index; menu + goal-based routing | `goal: Option<String>` |
+| `rabbitmq-queues` | List/inspect/create/delete/purge queues, queue actions, bindings-on-a-queue, get/publish messages, rebalance | none |
+| `rabbitmq-exchanges` | List/inspect/create/delete exchanges, bindings by source/destination, publish | none |
+| `rabbitmq-bindings` | List bindings (all/by vhost), bind/unbind exchange↔queue and exchange↔exchange | none |
+| `rabbitmq-dead-letter` | Guided DLX/DLQ setup, including the create-time-vs-policy fork | `vhost`, `source_queue`, `dlx_name`, `dlq_name` |
+| `rabbitmq-vhosts` | Vhost lifecycle, per-vhost limits, deletion protection, per-vhost channels/connections | none |
+| `rabbitmq-users-permissions` | User lifecycle, bulk-delete, vhost/topic permissions, per-user limits/queues | none |
+| `rabbitmq-policies` | Policies and operator-policy overrides (cross-references dead-letter/HA/TTL use cases) | none |
+| `rabbitmq-federation-shovel` | Explains the `parameters`/`global-parameters` indirection for federation upstreams and shovels; read-only `federation-links` status | none |
+| `rabbitmq-definitions-backup-restore` | Export/import full-cluster or per-vhost definitions | `vhost: Option<String>` |
+| `rabbitmq-monitoring-diagnostics` | Thin pointer to the right read-only signal (connections, channels, consumers, streams, health checks, overview, auth attempts, whoami) — deliberately not a multi-step guided flow, kept as its own prompt purely for `prompts/list` discoverability | none |
 
 ### Whole-sub-workflow delegation (the master prompt's core routing responsibility)
 
-This is the primary lever for sparing the main conversation's context window and tokens — more so than delegating individual steps within one sub-workflow (below). `master.md`'s routing instructions must tell the calling LLM: once you've matched the user's goal (or the menu selection) to one of the 10 sub-workflow prompt names, **if your environment provides a way to run a sub-task/agent in an isolated context, delegate the entire matched sub-workflow to it** — hand that sub-task the sub-workflow's prompt name (e.g. `rabbitmq_workflow_dead_letter`) and whatever parameters are already known, let it fetch that prompt itself (`prompts/get`) and carry out every one of its steps — including all of *its own* `search`/`get`/`call` traffic — entirely within its own context, and have it report back to this conversation only a short summary: what was accomplished/confirmed, and anything it still needs from the user. Only fall back to running the sub-workflow's steps directly in the current context if no such delegation mechanism is available.
+This is the primary lever for sparing the main conversation's context window and tokens — more so than delegating individual steps within one sub-workflow (below). `master.md`'s routing instructions must tell the calling LLM: once you've matched the user's goal (or the menu selection) to one of the 10 sub-workflow prompt names, **if your environment provides a way to run a sub-task/agent in an isolated context, delegate the entire matched sub-workflow to it** — hand that sub-task the sub-workflow's prompt name (e.g. `rabbitmq-dead-letter`) and whatever parameters are already known, let it fetch that prompt itself (`prompts/get`) and carry out every one of its steps — including all of *its own* `search`/`get`/`call` traffic — entirely within its own context, and have it report back to this conversation only a short summary: what was accomplished/confirmed, and anything it still needs from the user. Only fall back to running the sub-workflow's steps directly in the current context if no such delegation mechanism is available.
 
-This is what actually keeps a multi-step guided workflow's full tool-call trace (potentially dozens of `search`/`get`/`call` round-trips, each with its own request/response JSON) out of the main conversation — a single sub-workflow like `rabbitmq_workflow_dead_letter` can easily produce far more intermediate tool traffic than the final summary needs to convey. Every sub-workflow's own `content/*.md` should open with a short note reflecting this too (see the worked example below): it's designed to be handed to a fresh sub-task with just its own prompt text plus known parameters, self-contained enough that the sub-task doesn't need any of the master conversation's other history to execute it.
+This is what actually keeps a multi-step guided workflow's full tool-call trace (potentially dozens of `search`/`get`/`call` round-trips, each with its own request/response JSON) out of the main conversation — a single sub-workflow like `rabbitmq-dead-letter` can easily produce far more intermediate tool traffic than the final summary needs to convey. Every sub-workflow's own `content/*.md` should open with a short note reflecting this too (see the worked example below): it's designed to be handed to a fresh sub-task with just its own prompt text plus known parameters, self-contained enough that the sub-task doesn't need any of the master conversation's other history to execute it.
 
 The finer-grained, step-level delegation described further below (e.g. delegating a single verbose `search` or a large listing within one sub-workflow) is a secondary tactic that still applies *within* whichever context ends up actually executing the sub-workflow's steps — the delegated sub-task, if there is one, or the main conversation, if not.
 
@@ -149,24 +149,24 @@ The finer-grained, step-level delegation described further below (e.g. delegatin
 
 Every operation reference in every `content/*.md` file must be phrased as a *task to search for*, never as a specific tool/operation name — e.g. write `search for "how to create a queue?"`, not `call "createQueue"` or `call putApiQueuesVhostName`. This isn't a style preference: it's required by the version-drift found and confirmed above — 7 operations differ in which ids even exist across the 5 supported API versions, and 16 more share an id but return a genuinely different schema (the `getApiChannels` example). A prompt that names a concrete `operationId` or asserts a specific response field name can silently be wrong depending on which `api_version` the server is configured for. Phrasing every step as a natural-language search query, followed by "read the schema `get` returns before relying on any field name," keeps every prompt correct regardless of which of the 5 catalogs is active. Treat this as a hard rule to check for in review, not just a default.
 
-### Content design pattern (worked example: `rabbitmq_workflow_dead_letter`)
+### Content design pattern (worked example: `rabbitmq-dead-letter`)
 
 `src/prompts/content/dead_letter.md` must demonstrate every element the brief asked for — use this shape for every sub-workflow, not just this one:
 
-- **Opening note — this sub-workflow is self-contained and delegable.** Before Step 0: "This sub-workflow is designed to be run as an isolated sub-task where possible — if you were delegated here from `rabbitmq_workflow`'s routing, or your environment otherwise supports running this as its own sub-task, everything you need is in this prompt's own text plus the parameters already listed above; report back only a short summary when done rather than the full step-by-step trace." This is what makes whole-sub-workflow delegation (see above) actually work: a sub-task picking up this prompt shouldn't need any of the main conversation's other context to execute it.
+- **Opening note — this sub-workflow is self-contained and delegable.** Before Step 0: "This sub-workflow is designed to be run as an isolated sub-task where possible — if you were delegated here from `rabbitmq`'s routing, or your environment otherwise supports running this as its own sub-task, everything you need is in this prompt's own text plus the parameters already listed above; report back only a short summary when done rather than the full step-by-step trace." This is what makes whole-sub-workflow delegation (see above) actually work: a sub-task picking up this prompt shouldn't need any of the main conversation's other context to execute it.
 - **Step 0 — gather required parameters.** Check the prepended "Context already provided" header first; only ask the user for what's still listed as missing. Don't proceed to Step 1 until all are known.
 - **Step 1 — an explicit fork with a disambiguating question.** RabbitMQ queue arguments are immutable after declaration, so DLX/DLQ setup genuinely forks: (A) create-time (queue doesn't exist yet or can be recreated) — set `x-dead-letter-exchange`/`x-dead-letter-routing-key` as queue-declare arguments; (B) policy-based (queue exists and must not be recreated — the common production case) — apply a policy with a `dead-letter-exchange` definition, matched by name pattern. Ask "does the source queue already exist, and must it not be recreated?" rather than guessing.
 - **Step 2 — parallelizable, independent sub-steps, delegate if possible.** Creating the DLX exchange and the DLQ queue don't depend on each other (only the binding in Step 3 needs both) — call this out explicitly as safe to do concurrently, *and* as a candidate for delegation: "if your environment provides a way to run a sub-task in its own context (e.g. an agent/task tool), delegate 'create the DLX exchange' and 'create the DLQ queue' as two separate sub-tasks and have each return only a short confirmation — don't pull the full create-call request/response bodies into this conversation. If no such sub-task mechanism is available, just do both calls directly." Every operation reference here is phrased as "search for how to create an exchange in a given virtual host, then call the matching operation" — never a hardcoded `operationId` (see the agnostic-phrasing rule above). Gate: don't proceed until both resources are confirmed to exist (via a follow-up search-and-call, not just "the call didn't error").
 - **Step 3 — the binding**, gated on Step 2's resources being confirmed.
 - **Step 4 — apply the DLX to the source queue**, branching on the Step 1 fork, gated on confirming the setting actually took effect.
 - **Step 5 — summarize and offer live verification** (publish-and-check).
-- **Composing with other workflows** — steps 2–3 overlap with `rabbitmq_workflow_exchanges`/`rabbitmq_workflow_queues`/`rabbitmq_workflow_bindings`; tell the calling LLM to fetch those prompts by name for more detail rather than duplicating their content here.
+- **Composing with other workflows** — steps 2–3 overlap with `rabbitmq-exchanges`/`rabbitmq-queues`/`rabbitmq-bindings`; tell the calling LLM to fetch those prompts by name for more detail rather than duplicating their content here.
 
 Every other sub-workflow's `.md` should follow this same skeleton: numbered steps, an explicit "don't proceed until X is confirmed" gate per step, agnostic search-language instructions, and a call-out of any genuinely independent sub-steps as parallelizable.
 
 **Step-level delegation and parallelization — secondary to whole-sub-workflow delegation above, but still needed within whatever context runs the steps.** The brief asks explicitly for both "delegation and parallelization to improve performance and spare context windows and tokens." Whole-sub-workflow delegation (above) is the primary mechanism for that; this is the finer-grained complement, for individual steps *within* a sub-workflow (whether it ends up executing inside a delegated sub-task or, absent one, directly in the main conversation):
 - *Parallelization*: independent steps (or independent parts of one step) can be issued concurrently instead of sequentially — the DLX-exchange/DLQ-queue pair above.
-- *Step-level delegation*: for any single step whose own tool traffic would be verbose relative to what the workflow actually needs back (a `search` over many candidates before picking one, reading a large `output_schema`, paging through a long listing to filter it down, or the two independent creates above), the prose should tell the calling LLM to push *that step* into a further sub-task if the host environment offers one, and bring back only the distilled result (the resolved `operationId`, the one field that matters, a yes/no) rather than letting the full intermediate tool output accumulate. Phrase this conditionally, since not every MCP client has a sub-task mechanism: "if your environment supports running an isolated sub-task, delegate X and bring back only Y; otherwise do it directly here." Every sub-workflow with a step that plausibly produces a large or exploratory tool response (most obviously `rabbitmq_workflow_monitoring_diagnostics`'s listings, `rabbitmq_workflow_definitions_backup_restore`'s full-cluster export, and any `search` with many candidate matches) should include this instruction at that step, not only the two-independent-creates case in `dead_letter.md`.
+- *Step-level delegation*: for any single step whose own tool traffic would be verbose relative to what the workflow actually needs back (a `search` over many candidates before picking one, reading a large `output_schema`, paging through a long listing to filter it down, or the two independent creates above), the prose should tell the calling LLM to push *that step* into a further sub-task if the host environment offers one, and bring back only the distilled result (the resolved `operationId`, the one field that matters, a yes/no) rather than letting the full intermediate tool output accumulate. Phrase this conditionally, since not every MCP client has a sub-task mechanism: "if your environment supports running an isolated sub-task, delegate X and bring back only Y; otherwise do it directly here." Every sub-workflow with a step that plausibly produces a large or exploratory tool response (most obviously `rabbitmq-monitoring-diagnostics`'s listings, `rabbitmq-definitions-backup-restore`'s full-cluster export, and any `search` with many candidate matches) should include this instruction at that step, not only the two-independent-creates case in `dead_letter.md`.
 
 ### Content size and token economy
 
@@ -178,8 +178,8 @@ MCP's two-phase discovery model already bounds most of the cost here, and the de
 Given that, the actual lever is keeping each individual `content/*.md` proportional to its domain's real complexity, not padding every prompt to the same shape as the worked `dead_letter.md` example above:
 
 - **Multi-resource, order-dependent domains** (`dead_letter`, `definitions_backup_restore`, `federation_shovel`'s parameters-indirection explanation) genuinely need the numbered-step/gate/fork treatment and can run longer — but even these should target roughly **60–120 lines**, not 200+. If a domain's steps start sprawling past that, that's a signal it should be split into its own sub-workflow rather than grown in place.
-- **Single-resource CRUD domains** (`rabbitmq_workflow_vhosts`, `rabbitmq_workflow_users_permissions`, `rabbitmq_workflow_policies`, `rabbitmq_workflow_queues`, `rabbitmq_workflow_exchanges`, `rabbitmq_workflow_bindings`) don't have the cross-resource dependencies that justify heavy step-gating — these should be short, roughly **20–50 lines**: what the domain covers, the agnostic search-language pattern to use, and 1-2 sentences on any real gotcha (e.g. queue-argument immutability), not a padded numbered-step scaffold for what's really a single search-then-call action.
-- **`rabbitmq_workflow_monitoring_diagnostics`** should be the shortest of all — a single paragraph, as already scoped in the prompt inventory.
+- **Single-resource CRUD domains** (`rabbitmq-vhosts`, `rabbitmq-users-permissions`, `rabbitmq-policies`, `rabbitmq-queues`, `rabbitmq-exchanges`, `rabbitmq-bindings`) don't have the cross-resource dependencies that justify heavy step-gating — these should be short, roughly **20–50 lines**: what the domain covers, the agnostic search-language pattern to use, and 1-2 sentences on any real gotcha (e.g. queue-argument immutability), not a padded numbered-step scaffold for what's really a single search-then-call action.
+- **`rabbitmq-monitoring-diagnostics`** should be the shortest of all — a single paragraph, as already scoped in the prompt inventory.
 - **`master.md`** must stay a lean menu: one line per sub-workflow (name, one-sentence when-to-use) plus brief goal-matching guidance, not a summary of each sub-workflow's internal steps — that detail belongs solely in the sub-workflow's own prompt, fetched on demand. Target **under 60 lines**.
 
 These are targets to keep content proportional and reviewable, not hard limits enforced by code — call it out in review if a draft `.md` file overshoots its band without a real reason (e.g. a domain turning out to be more compound than initially scoped).
@@ -198,7 +198,7 @@ These are targets to keep content proportional and reviewable, not hard limits e
 ## Sequencing
 
 0. **Persist this plan into the repo** as `docs/mcp-prompts-workflow-plan.md` (this repo already has a `docs/` folder — [docs/SCHEMA_VERSIONS.md](SCHEMA_VERSIONS.md), [docs/api-sources.md](api-sources.md)), so the design record lives with the code it describes rather than only in an ephemeral planning file outside the repo. Do this first, before any code changes.
-1. **Vertical slice**: wire up the struct field, macro stacking, `.enable_prompts()`, and implement only `rabbitmq_workflow` + `rabbitmq_workflow_dead_letter` (with their `content/*.md`). Exercises every integration point at once.
+1. **Vertical slice**: wire up the struct field, macro stacking, `.enable_prompts()`, and implement only `rabbitmq` + `rabbitmq-dead-letter` (with their `content/*.md`). Exercises every integration point at once.
 2. **Stand up `tests/prompts_workflow.rs` and verify** the vertical slice through it before writing more content (see Verification below) — this is also where the new file's transport/client scaffolding gets written once, for the remaining prompts' tests to extend rather than re-invent.
 3. **Fill in the remaining 9 sub-workflow prompts** one at a time — pure content-design work once step 1 is proven, since they all share the same plumbing.
 4. **Finalize `master.md`** last, once every prompt name is stable, so its menu references real names.
@@ -208,9 +208,9 @@ These are targets to keep content proportional and reviewable, not hard limits e
 - `cargo build` / `cargo test` from the repo root after each stage above.
 - **Prompt tests stay physically separate from tool tests** — nothing prompt-related is added to `src/core/mcp_server.rs`'s existing `#[cfg(test)] mod tests` (which stays scoped to `search`/`get`/`call`, unchanged except for the one capabilities-flag assertion below). Two new, separate test locations instead:
   - **`tests/prompts_workflow.rs`** (new top-level integration test file, following the same convention as [tests/cli_smoke.rs](../tests/cli_smoke.rs)/[tests/runtime_paths.rs](../tests/runtime_paths.rs)) — protocol-level tests against the crate's public API (`rabbitmq_mcp::core::mcp_server::McpifyServer`, an `rmcp::ClientHandler` stub, `tokio::io::duplex`, the same pattern `mcp_protocol_routes_search_get_and_call_requests` already uses, just promoted to its own file/compilation unit rather than an inline unit test):
-    - `prompts/list` shape: assert `client.list_all_prompts()` returns all 11 names under the shared `rabbitmq_workflow*` prefix, and that `rabbitmq_workflow_dead_letter`'s advertised arguments include `vhost`/`source_queue`/`dlx_name`/`dlq_name`, all with `required == Some(false)`.
-    - `prompts/get` round-trip for `rabbitmq_workflow` with no arguments — assert success and that the returned text mentions `rabbitmq_workflow_dead_letter` (proves the menu links to it).
-    - `prompts/get` round-trip for `rabbitmq_workflow_dead_letter` with partial arguments (e.g. `vhost` + `source_queue` supplied, `dlx_name`/`dlq_name` omitted) — assert the rendered header both echoes the supplied values and lists the still-missing ones.
+    - `prompts/list` shape: assert `client.list_all_prompts()` returns all 11 names under the shared `rabbitmq*` prefix, and that `rabbitmq-dead-letter`'s advertised arguments include `vhost`/`source_queue`/`dlx_name`/`dlq_name`, all with `required == Some(false)`.
+    - `prompts/get` round-trip for `rabbitmq` with no arguments — assert success and that the returned text mentions `rabbitmq-dead-letter` (proves the menu links to it).
+    - `prompts/get` round-trip for `rabbitmq-dead-letter` with partial arguments (e.g. `vhost` + `source_queue` supplied, `dlx_name`/`dlq_name` omitted) — assert the rendered header both echoes the supplied values and lists the still-missing ones.
     - Extend or duplicate `server_info_advertises_the_generated_tool_surface`'s capabilities assertion here too: `info.capabilities.prompts.is_some()` (the existing tools-side assertion in `mcp_server.rs` is left as-is; this is a new, prompts-specific assertion in the new file, not a shared test).
   - **`src/prompts/mod.rs`**'s own `#[cfg(test)] mod tests` — pure unit test for `render_context_header` covering: empty slice, all-supplied, all-missing, mixed. Pure logic, no transport, so it doesn't need the integration-test harness.
 - Manual smoke check: `cargo run -- start` (stdio) and, separately, `cargo run -- http` with an MCP-capable client that supports `prompts/list`/`prompts/get`, to confirm the master → dead-letter cross-reference reads naturally to a real calling LLM, not just structurally valid per the automated tests.
@@ -227,7 +227,7 @@ This repo's existing convention, confirmed from git history and `.github/workflo
 
 ---
 
-## Addendum (2026-07-20): `rabbitmq_workflow_upgrade_readiness` + README documentation
+## Addendum (2026-07-20): `rabbitmq-upgrade-readiness` + README documentation
 
 Shipped as `v0.5.0`, tested, and confirmed working end-to-end (real stdio JSON-RPC `initialize`/`prompts/list`/`prompts/get` round trip). This addendum covers the first follow-up round: a systematic gap-analysis pass over the full operation catalog for missed workflow candidates, plus documenting the feature in `README.md`.
 
@@ -235,9 +235,9 @@ Shipped as `v0.5.0`, tested, and confirmed working end-to-end (real stdio JSON-R
 
 Cross-checked every operation_id in the default 137-operation (4.3.2) catalog against the coverage described in all 10 existing `content/*.md` files, then re-verified each candidate gap actually exists in all 5 supported API versions (4.3.2, 4.2.8, 4.1.8, 4.0.9, 3.13.7) via direct query — confirmed all of them do.
 
-### New workflow: `rabbitmq_workflow_upgrade_readiness`
+### New workflow: `rabbitmq-upgrade-readiness`
 
-`getApiDeprecatedFeatures`, `getApiDeprecatedFeaturesUsed`, `getApiFeatureFlags`, and `postApiVhostsNameStartNode` had no existing home and cluster around one real, compound, gated operational task: *is it safe to restart or upgrade a node/cluster, and what needs re-starting afterward?* Same shape of justification as `rabbitmq_workflow_dead_letter` — multiple independent read-only checks (parallelizable/delegable), a go/no-go gate, and a post-action verification step. Added the same way as every other sub-workflow: `content/upgrade_readiness.md` (69 lines, within the 60–120 compound-tier band), a `#[prompt(...)]` method in `router.rs`, an `UpgradeReadinessWorkflowArgs { node: Option<String> }` struct in `mod.rs`, and a `master.md` menu line. Total prompt count: 12.
+`getApiDeprecatedFeatures`, `getApiDeprecatedFeaturesUsed`, `getApiFeatureFlags`, and `postApiVhostsNameStartNode` had no existing home and cluster around one real, compound, gated operational task: *is it safe to restart or upgrade a node/cluster, and what needs re-starting afterward?* Same shape of justification as `rabbitmq-dead-letter` — multiple independent read-only checks (parallelizable/delegable), a go/no-go gate, and a post-action verification step. Added the same way as every other sub-workflow: `content/upgrade_readiness.md` (69 lines, within the 60–120 compound-tier band), a `#[prompt(...)]` method in `router.rs`, an `UpgradeReadinessWorkflowArgs { node: Option<String> }` struct in `mod.rs`, and a `master.md` menu line. Total prompt count: 12.
 
 ### Enrichments folded into existing files (no new prompts)
 
@@ -249,4 +249,4 @@ A cross-cutting "verify message flow end-to-end" workflow (publish → confirm r
 
 ### README.md
 
-Added a `## Workflows` section (after `## Usage`) documenting the `prompts` capability, the `rabbitmq_workflow` master prompt as the entry point, and a table of all 12 prompt names with one-line descriptions — mirroring the existing `## Configuration` table's style. Revised the intro paragraph to mention prompts alongside the 3 tools, matching `get_info()`'s own instructions text.
+Added a `## Workflows` section (after `## Usage`) documenting the `prompts` capability, the `rabbitmq` master prompt as the entry point, and a table of all 12 prompt names with one-line descriptions — mirroring the existing `## Configuration` table's style. Revised the intro paragraph to mention prompts alongside the 3 tools, matching `get_info()`'s own instructions text.
