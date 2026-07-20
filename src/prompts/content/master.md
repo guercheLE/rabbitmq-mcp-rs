@@ -42,6 +42,9 @@ here instead.
   full cluster's or one vhost's definitions.
 - **`rabbitmq_workflow_monitoring_diagnostics`** — connections, channels,
   consumers, streams, health checks, node/cluster status.
+- **`rabbitmq_workflow_upgrade_readiness`** — is it safe to restart a
+  node, restart the cluster, or upgrade RabbitMQ; checks deprecated
+  features, feature flags, and health, then confirms recovery after.
 
 Every sub-workflow above describes RabbitMQ operations only by what they
 do (e.g. "search for how to create a queue"), never by a specific

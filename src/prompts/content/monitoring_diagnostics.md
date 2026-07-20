@@ -5,8 +5,10 @@ and diagnostic questions are a single search-then-call, not a sequence
 with gates or forks. Covers: connections, channels, consumers, streams
 (connections/consumers/publishers), the various health checks (alarms,
 node readiness, quorum-critical queues, certificate expiration,
-listener/protocol availability, and more), node and cluster overview,
-authentication attempts, and "who am I."
+listener/protocol availability, and more), node and cluster overview
+(including renaming the cluster), management-plugin extensions,
+cluster-wide (not vhost-scoped) global parameters, authentication
+attempts, and "who am I."
 
 Search for the specific signal the user actually wants (e.g. "search for
 how to check if a node is ready to serve clients", "search for how to

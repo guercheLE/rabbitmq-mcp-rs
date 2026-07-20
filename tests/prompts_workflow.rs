@@ -63,6 +63,7 @@ async fn prompts_list_advertises_every_workflow_prompt_under_the_shared_prefix()
             "rabbitmq_workflow_monitoring_diagnostics",
             "rabbitmq_workflow_policies",
             "rabbitmq_workflow_queues",
+            "rabbitmq_workflow_upgrade_readiness",
             "rabbitmq_workflow_users_permissions",
             "rabbitmq_workflow_vhosts",
         ]
@@ -85,6 +86,36 @@ async fn prompts_list_advertises_every_workflow_prompt_under_the_shared_prefix()
         args.iter().all(|a| a.required == Some(false)),
         "every dead-letter argument must be optional, got: {args:?}"
     );
+
+    let upgrade_readiness = prompts
+        .iter()
+        .find(|p| p.name == "rabbitmq_workflow_upgrade_readiness")
+        .unwrap();
+    let upgrade_args = upgrade_readiness.arguments.as_ref().unwrap();
+    assert_eq!(upgrade_args.len(), 1);
+    assert_eq!(upgrade_args[0].name, "node");
+    assert_eq!(upgrade_args[0].required, Some(false));
+
+    drop(client);
+}
+
+#[tokio::test]
+async fn upgrade_readiness_prompt_echoes_the_node_argument_when_supplied() {
+    let client = connected_client().await;
+
+    let result = client
+        .get_prompt(
+            GetPromptRequestParams::new("rabbitmq_workflow_upgrade_readiness").with_arguments(
+                serde_json::json!({ "node": "rabbit@node1" })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await
+        .unwrap();
+    let text = text_of(&result);
+    assert!(text.contains("`node` = \"rabbit@node1\""));
 
     drop(client);
 }

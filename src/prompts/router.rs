@@ -9,7 +9,7 @@ use rmcp::{prompt, prompt_router};
 use crate::core::mcp_server::McpifyServer;
 use crate::prompts::{
     DeadLetterWorkflowArgs, DefinitionsBackupRestoreWorkflowArgs, MasterWorkflowArgs,
-    render_context_header,
+    UpgradeReadinessWorkflowArgs, render_context_header,
 };
 
 #[prompt_router(vis = "pub(crate)")]
@@ -152,6 +152,26 @@ impl McpifyServer {
             format!(
                 "{header}\n\n{}",
                 include_str!("content/definitions_backup_restore.md")
+            ),
+        )]
+    }
+
+    #[prompt(
+        name = "rabbitmq_workflow_upgrade_readiness",
+        description = "Assess whether it's safe to restart a node, restart the cluster, or \
+                        upgrade RabbitMQ: deprecated features in use, feature-flag status, \
+                        health/alarms/quorum, and post-restart recovery checks."
+    )]
+    async fn rabbitmq_workflow_upgrade_readiness_prompt(
+        &self,
+        Parameters(args): Parameters<UpgradeReadinessWorkflowArgs>,
+    ) -> Vec<PromptMessage> {
+        let header = render_context_header(&[("node", args.node.as_deref())]);
+        vec![PromptMessage::new_text(
+            Role::User,
+            format!(
+                "{header}\n\n{}",
+                include_str!("content/upgrade_readiness.md")
             ),
         )]
     }

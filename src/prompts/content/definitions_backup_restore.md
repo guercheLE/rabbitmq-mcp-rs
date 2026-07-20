@@ -10,6 +10,10 @@ vhosts, permissions, policies, and parameters as one definitions
 document — for backup, migration, or replicating configuration between
 clusters.
 
+If `search` surfaces an older `all-configuration` operation instead of
+`definitions`, treat it as the same feature under its previous,
+deprecated name — don't use both or treat them as different exports.
+
 ## Step 0 — Scope: full cluster or one vhost?
 
 Check the "Context already provided" header above for a `vhost` value.

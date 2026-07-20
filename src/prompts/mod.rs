@@ -31,6 +31,12 @@ pub struct DefinitionsBackupRestoreWorkflowArgs {
     pub vhost: Option<String>,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct UpgradeReadinessWorkflowArgs {
+    /// Node to scope the readiness check to (omit for a cluster-wide check)
+    pub node: Option<String>,
+}
+
 /// Renders a short "Context already provided" header listing which of a
 /// prompt's optional arguments the caller already supplied vs. still need to
 /// be asked for. Prepended to each `content/*.md` body so the static

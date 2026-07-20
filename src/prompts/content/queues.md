@@ -37,3 +37,11 @@ Listing all queues (or "detailed" queue listings) can return a large,
 paginated result — if your environment supports delegating that one
 step to a sub-task and getting back only a filtered/summarized answer,
 do so rather than pulling a long listing into this conversation.
+
+**Stream queues:** a stream is just a queue created with a
+`x-queue-type: stream` argument (plus stream-specific arguments like
+retention). Create it the same way as any other queue — search for how
+to create a queue, and set the type argument — rather than looking for
+a separate "create stream" operation, which doesn't exist. Read-only
+status for stream connections/consumers/publishers is covered by
+`rabbitmq_workflow_monitoring_diagnostics`, not here.
