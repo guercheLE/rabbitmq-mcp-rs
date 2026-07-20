@@ -10,8 +10,8 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::transport::stdio;
 use rmcp::{
-    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt, schemars, tool, tool_handler,
-    tool_router,
+    ErrorData as McpError, RoleServer, ServerHandler, ServiceExt, prompt_handler, schemars, tool,
+    tool_handler, tool_router,
 };
 use serde::Deserialize;
 use tokio::sync::Mutex;
@@ -71,6 +71,7 @@ pub struct McpifyServer {
     config: Config,
     auth_manager: Arc<Mutex<AuthManager>>,
     tool_router: ToolRouter<McpifyServer>,
+    prompt_router: rmcp::handler::server::router::prompt::PromptRouter<McpifyServer>,
 }
 
 #[tool_router]
@@ -88,6 +89,7 @@ impl McpifyServer {
             config,
             auth_manager,
             tool_router: Self::tool_router(),
+            prompt_router: Self::prompt_router(),
         }
     }
 
@@ -202,16 +204,24 @@ impl McpifyServer {
 // `call_tool` request, rebuilding the router instead of reusing the one
 // `new()` already built into this instance's `tool_router` field.
 #[tool_handler(router = self.tool_router.clone())]
+#[prompt_handler(router = self.prompt_router.clone())]
 impl ServerHandler for McpifyServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::from_build_env())
-            .with_protocol_version(ProtocolVersion::V_2024_11_05)
-            .with_instructions(
-                "Exposes exactly 3 tools -- search, get, call -- backed by an embedded \
-                 semantic database, so you never need the full API surface in context."
-                    .to_string(),
-            )
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_prompts()
+                .build(),
+        )
+        .with_server_info(Implementation::from_build_env())
+        .with_protocol_version(ProtocolVersion::V_2024_11_05)
+        .with_instructions(
+            "Exposes exactly 3 tools -- search, get, call -- backed by an embedded \
+             semantic database, so you never need the full API surface in context. \
+             Also exposes MCP prompts -- start with the `rabbitmq_workflow` prompt for \
+             guided, multi-step help with common RabbitMQ management tasks."
+                .to_string(),
+        )
     }
 }
 
