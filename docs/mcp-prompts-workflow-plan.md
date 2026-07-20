@@ -224,3 +224,29 @@ This repo's existing convention, confirmed from git history and `.github/workflo
 3. Bump `version` in `Cargo.toml` (and let `Cargo.lock` follow via `cargo check`/`cargo build`), commit as `chore(release): bump version to X.Y.Z` — matching every prior release commit's exact message shape. Current version is `0.4.8`; this repo's history bumps the patch component per release regardless of change size (`0.4.7` → `0.4.8`), so default to `0.4.9` unless the implementation commit's conventional-commit type argues for a minor bump instead — use judgment at execution time, don't hardcode this without checking what actually landed.
 4. `git tag vX.Y.Z` on that bump commit (matching the `v*.*.*` pattern `release.yml` listens for).
 5. `git push` the branch, then `git push --tags` (or `git push origin vX.Y.Z`) — confirm with the user before pushing, per this session's standing rule that pushes and tag creation are confirmed, not assumed.
+
+---
+
+## Addendum (2026-07-20): `rabbitmq_workflow_upgrade_readiness` + README documentation
+
+Shipped as `v0.5.0`, tested, and confirmed working end-to-end (real stdio JSON-RPC `initialize`/`prompts/list`/`prompts/get` round trip). This addendum covers the first follow-up round: a systematic gap-analysis pass over the full operation catalog for missed workflow candidates, plus documenting the feature in `README.md`.
+
+### Gap-analysis method
+
+Cross-checked every operation_id in the default 137-operation (4.3.2) catalog against the coverage described in all 10 existing `content/*.md` files, then re-verified each candidate gap actually exists in all 5 supported API versions (4.3.2, 4.2.8, 4.1.8, 4.0.9, 3.13.7) via direct query — confirmed all of them do.
+
+### New workflow: `rabbitmq_workflow_upgrade_readiness`
+
+`getApiDeprecatedFeatures`, `getApiDeprecatedFeaturesUsed`, `getApiFeatureFlags`, and `postApiVhostsNameStartNode` had no existing home and cluster around one real, compound, gated operational task: *is it safe to restart or upgrade a node/cluster, and what needs re-starting afterward?* Same shape of justification as `rabbitmq_workflow_dead_letter` — multiple independent read-only checks (parallelizable/delegable), a go/no-go gate, and a post-action verification step. Added the same way as every other sub-workflow: `content/upgrade_readiness.md` (69 lines, within the 60–120 compound-tier band), a `#[prompt(...)]` method in `router.rs`, an `UpgradeReadinessWorkflowArgs { node: Option<String> }` struct in `mod.rs`, and a `master.md` menu line. Total prompt count: 12.
+
+### Enrichments folded into existing files (no new prompts)
+
+Per the content-size/token-economy rule (single-call lookups don't earn a guided workflow): `getApiExtensions`, `getApiGlobalParameters`, and `putApiClusterName` were added to `monitoring_diagnostics.md`'s coverage sentence; stream-type queue creation (`x-queue-type: stream` is a queue-create argument, not a separate operation) got one addendum paragraph in `queues.md`; starting a vhost on a node was added to `vhosts.md` (with a cross-reference from the new upgrade-readiness workflow); and `getApiAllConfiguration`/`postApiAllConfiguration` (the deprecated alias of `/api/definitions`) got a one-line note in `definitions_backup_restore.md` so an agent that finds it via `search` doesn't treat it as a separate feature.
+
+### Considered and rejected
+
+A cross-cutting "verify message flow end-to-end" workflow (publish → confirm routing → consume/purge). Every topology-creating domain (`dead_letter`, `queues`, `exchanges`, `bindings`) already ends its own steps with a "confirm end-to-end" instruction scoped to what it just built; a 13th, generic prompt for this would either duplicate that or be too vague to gate meaningfully on its own.
+
+### README.md
+
+Added a `## Workflows` section (after `## Usage`) documenting the `prompts` capability, the `rabbitmq_workflow` master prompt as the entry point, and a table of all 12 prompt names with one-line descriptions — mirroring the existing `## Configuration` table's style. Revised the intro paragraph to mention prompts alongside the 3 tools, matching `get_info()`'s own instructions text.
