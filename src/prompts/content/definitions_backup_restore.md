@@ -1,7 +1,7 @@
 # Sub-workflow: Definitions backup/restore
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 

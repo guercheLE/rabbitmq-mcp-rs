@@ -1,7 +1,7 @@
 # Sub-workflow: Exchanges
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -23,10 +23,10 @@ fanout, topic, or headers) — ask the user's intended routing pattern if
 they haven't said, rather than defaulting silently.
 
 If the goal is specifically setting up a dead-letter exchange, use
-`rabbitmq_workflow_dead_letter` instead of doing it here — it covers the
+`rabbitmq-dead-letter` instead of doing it here — it covers the
 full exchange+queue+binding sequence and the create-time-vs-policy
 decision this exchange-only prompt doesn't.
 
 If the goal involves federating an exchange to another cluster, that's
-`rabbitmq_workflow_federation_shovel`, not this prompt — exchange
+`rabbitmq-federation-shovel`, not this prompt — exchange
 creation here only covers a single local cluster.

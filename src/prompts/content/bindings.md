@@ -1,7 +1,7 @@
 # Sub-workflow: Bindings
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -26,6 +26,6 @@ Confirm the binding took effect afterward (search for how to list
 bindings and check it appears) before telling the user it's done.
 
 If the goal is specifically dead-lettering, use
-`rabbitmq_workflow_dead_letter` instead — it covers the full
+`rabbitmq-dead-letter` instead — it covers the full
 exchange+queue+binding sequence together, including the fork this
 prompt alone doesn't handle.

@@ -1,7 +1,7 @@
 # Sub-workflow: Virtual hosts
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -25,10 +25,10 @@ confirm before proceeding — this is a destructive, hard-to-reverse
 operation.
 
 If the user only wants to manage who can access a vhost (not the vhost
-itself), that's `rabbitmq_workflow_users_permissions`, not this prompt.
+itself), that's `rabbitmq-users-permissions`, not this prompt.
 
 If the goal is checking whether it's safe to restart a node or the
 cluster (starting a vhost on a node is often a post-restart step), use
-`rabbitmq_workflow_upgrade_readiness` to drive that sequence — it
+`rabbitmq-upgrade-readiness` to drive that sequence — it
 delegates the actual "start a vhost on a node" call back to the
 technique described here.

@@ -5,7 +5,7 @@ exceeding a queue length limit land in a dedicated dead-letter queue,
 instead of being discarded.
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text plus the
 parameters above is everything you need — report back only a short
 summary when done, not the full step-by-step trace.
@@ -113,7 +113,7 @@ publishing a message that will be rejected or expire and checking
 
 ## Composing with other workflows
 
-Steps 2–3 overlap with `rabbitmq_workflow_exchanges`,
-`rabbitmq_workflow_queues`, and `rabbitmq_workflow_bindings` — fetch
+Steps 2–3 overlap with `rabbitmq-exchanges`,
+`rabbitmq-queues`, and `rabbitmq-bindings` — fetch
 those prompts for more detail on an individual operation rather than
 guessing.

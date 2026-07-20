@@ -15,7 +15,7 @@ use crate::prompts::{
 #[prompt_router(vis = "pub(crate)")]
 impl McpifyServer {
     #[prompt(
-        name = "rabbitmq_workflow",
+        name = "rabbitmq",
         description = "Start here. Presents the available RabbitMQ management workflows, \
                         routes to the right guided sub-workflow based on the user's goal, \
                         and — where the environment supports it — delegates that whole \
@@ -34,7 +34,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_dead_letter",
+        name = "rabbitmq-dead-letter",
         description = "Guided, multi-step setup of a dead-letter exchange/queue (DLX/DLQ) for \
                         a RabbitMQ queue, including the create-time-vs-policy decision."
     )]
@@ -55,7 +55,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_queues",
+        name = "rabbitmq-queues",
         description = "List/inspect/create/delete/purge queues, queue actions, bindings-on-a-\
                         queue, get/publish messages, rebalance."
     )]
@@ -67,7 +67,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_exchanges",
+        name = "rabbitmq-exchanges",
         description = "List/inspect/create/delete exchanges, bindings by source/destination, \
                         publish."
     )]
@@ -79,7 +79,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_bindings",
+        name = "rabbitmq-bindings",
         description = "List bindings (all/by vhost), bind/unbind exchange↔queue and \
                         exchange↔exchange."
     )]
@@ -91,7 +91,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_vhosts",
+        name = "rabbitmq-vhosts",
         description = "Vhost lifecycle, per-vhost limits, deletion protection, per-vhost \
                         channels/connections."
     )]
@@ -103,7 +103,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_users_permissions",
+        name = "rabbitmq-users-permissions",
         description = "User lifecycle, bulk-delete, vhost/topic permissions, per-user \
                         limits/queues."
     )]
@@ -115,7 +115,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_policies",
+        name = "rabbitmq-policies",
         description = "Policies and operator-policy overrides (cross-references dead-letter/HA/\
                         TTL use cases)."
     )]
@@ -127,7 +127,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_federation_shovel",
+        name = "rabbitmq-federation-shovel",
         description = "Explains the parameters/global-parameters indirection for federation \
                         upstreams and shovels; read-only federation-links status."
     )]
@@ -139,7 +139,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_definitions_backup_restore",
+        name = "rabbitmq-definitions-backup-restore",
         description = "Export/import full-cluster or per-vhost definitions."
     )]
     async fn rabbitmq_workflow_definitions_backup_restore_prompt(
@@ -157,7 +157,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_upgrade_readiness",
+        name = "rabbitmq-upgrade-readiness",
         description = "Assess whether it's safe to restart a node, restart the cluster, or \
                         upgrade RabbitMQ: deprecated features in use, feature-flag status, \
                         health/alarms/quorum, and post-restart recovery checks."
@@ -177,7 +177,7 @@ impl McpifyServer {
     }
 
     #[prompt(
-        name = "rabbitmq_workflow_monitoring_diagnostics",
+        name = "rabbitmq-monitoring-diagnostics",
         description = "Thin pointer to the right read-only signal (connections, channels, \
                         consumers, streams, health checks, overview, auth attempts, whoami)."
     )]

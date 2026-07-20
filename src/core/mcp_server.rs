@@ -218,7 +218,7 @@ impl ServerHandler for McpifyServer {
         .with_instructions(
             "Exposes exactly 3 tools -- search, get, call -- backed by an embedded \
              semantic database, so you never need the full API surface in context. \
-             Also exposes MCP prompts -- start with the `rabbitmq_workflow` prompt for \
+             Also exposes MCP prompts -- start with the `rabbitmq` prompt for \
              guided, multi-step help with common RabbitMQ management tasks."
                 .to_string(),
         )

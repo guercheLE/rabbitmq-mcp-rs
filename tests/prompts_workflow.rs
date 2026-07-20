@@ -54,28 +54,28 @@ async fn prompts_list_advertises_every_workflow_prompt_under_the_shared_prefix()
     assert_eq!(
         names,
         [
-            "rabbitmq_workflow",
-            "rabbitmq_workflow_bindings",
-            "rabbitmq_workflow_dead_letter",
-            "rabbitmq_workflow_definitions_backup_restore",
-            "rabbitmq_workflow_exchanges",
-            "rabbitmq_workflow_federation_shovel",
-            "rabbitmq_workflow_monitoring_diagnostics",
-            "rabbitmq_workflow_policies",
-            "rabbitmq_workflow_queues",
-            "rabbitmq_workflow_upgrade_readiness",
-            "rabbitmq_workflow_users_permissions",
-            "rabbitmq_workflow_vhosts",
+            "rabbitmq",
+            "rabbitmq-bindings",
+            "rabbitmq-dead-letter",
+            "rabbitmq-definitions-backup-restore",
+            "rabbitmq-exchanges",
+            "rabbitmq-federation-shovel",
+            "rabbitmq-monitoring-diagnostics",
+            "rabbitmq-policies",
+            "rabbitmq-queues",
+            "rabbitmq-upgrade-readiness",
+            "rabbitmq-users-permissions",
+            "rabbitmq-vhosts",
         ]
     );
     assert!(
-        names.iter().all(|n| n.starts_with("rabbitmq_workflow")),
-        "every prompt name must share the rabbitmq_workflow* prefix, got: {names:?}"
+        names.iter().all(|n| n.starts_with("rabbitmq")),
+        "every prompt name must share the rabbitmq* prefix, got: {names:?}"
     );
 
     let dead_letter = prompts
         .iter()
-        .find(|p| p.name == "rabbitmq_workflow_dead_letter")
+        .find(|p| p.name == "rabbitmq-dead-letter")
         .unwrap();
     let args = dead_letter.arguments.as_ref().unwrap();
     let arg_names: Vec<&str> = args.iter().map(|a| a.name.as_str()).collect();
@@ -89,7 +89,7 @@ async fn prompts_list_advertises_every_workflow_prompt_under_the_shared_prefix()
 
     let upgrade_readiness = prompts
         .iter()
-        .find(|p| p.name == "rabbitmq_workflow_upgrade_readiness")
+        .find(|p| p.name == "rabbitmq-upgrade-readiness")
         .unwrap();
     let upgrade_args = upgrade_readiness.arguments.as_ref().unwrap();
     assert_eq!(upgrade_args.len(), 1);
@@ -105,7 +105,7 @@ async fn upgrade_readiness_prompt_echoes_the_node_argument_when_supplied() {
 
     let result = client
         .get_prompt(
-            GetPromptRequestParams::new("rabbitmq_workflow_upgrade_readiness").with_arguments(
+            GetPromptRequestParams::new("rabbitmq-upgrade-readiness").with_arguments(
                 serde_json::json!({ "node": "rabbit@node1" })
                     .as_object()
                     .unwrap()
@@ -125,12 +125,12 @@ async fn master_prompt_with_no_arguments_links_to_the_dead_letter_sub_workflow()
     let client = connected_client().await;
 
     let result = client
-        .get_prompt(GetPromptRequestParams::new("rabbitmq_workflow"))
+        .get_prompt(GetPromptRequestParams::new("rabbitmq"))
         .await
         .unwrap();
     assert_eq!(result.messages.len(), 1);
     let text = text_of(&result);
-    assert!(text.contains("rabbitmq_workflow_dead_letter"));
+    assert!(text.contains("rabbitmq-dead-letter"));
 
     drop(client);
 }
@@ -141,7 +141,7 @@ async fn dead_letter_prompt_echoes_supplied_arguments_and_lists_the_missing_ones
 
     let result = client
         .get_prompt(
-            GetPromptRequestParams::new("rabbitmq_workflow_dead_letter").with_arguments(
+            GetPromptRequestParams::new("rabbitmq-dead-letter").with_arguments(
                 serde_json::json!({ "vhost": "/", "source_queue": "orders" })
                     .as_object()
                     .unwrap()
@@ -164,7 +164,7 @@ async fn dead_letter_prompt_with_no_arguments_lists_every_field_as_missing() {
     let client = connected_client().await;
 
     let result = client
-        .get_prompt(GetPromptRequestParams::new("rabbitmq_workflow_dead_letter"))
+        .get_prompt(GetPromptRequestParams::new("rabbitmq-dead-letter"))
         .await
         .unwrap();
     let text = text_of(&result);

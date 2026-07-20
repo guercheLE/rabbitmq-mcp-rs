@@ -1,7 +1,7 @@
 # Sub-workflow: Upgrade / restart readiness
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -31,7 +31,7 @@ Otherwise run them directly, in any order:
 - Search for how to check feature-flag status. Flags not yet enabled
   may need enabling before an upgrade; ask the user if they want that
   done as a separate, explicit step rather than doing it silently here.
-- Reuse `rabbitmq_workflow_monitoring_diagnostics`'s health-check
+- Reuse `rabbitmq-monitoring-diagnostics`'s health-check
   operations rather than re-deriving them: alarms, quorum-critical
   queues, and (if `node` was given) that node's readiness.
 
@@ -65,5 +65,5 @@ check.
 ## Composing with other workflows
 
 The health-check details this prompt reuses in Step 2 and Step 4 are
-covered more fully by `rabbitmq_workflow_monitoring_diagnostics` — fetch
+covered more fully by `rabbitmq-monitoring-diagnostics` — fetch
 it for more detail on an individual check rather than guessing.

@@ -1,7 +1,7 @@
 # Sub-workflow: Queues
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -26,10 +26,10 @@ known — almost every queue operation needs both.
 are set at creation time and are immutable afterward — RabbitMQ has no
 "alter queue arguments" operation. If the user wants to change one on an
 existing queue, either recreate the queue or use a policy instead (see
-`rabbitmq_workflow_policies`); don't attempt an in-place argument edit.
+`rabbitmq-policies`); don't attempt an in-place argument edit.
 
 If the goal is specifically dead-lettering, use
-`rabbitmq_workflow_dead_letter` instead of doing it here — it covers the
+`rabbitmq-dead-letter` instead of doing it here — it covers the
 full exchange+queue+binding sequence and the create-time-vs-policy
 decision this queue-only prompt doesn't.
 
@@ -44,4 +44,4 @@ retention). Create it the same way as any other queue — search for how
 to create a queue, and set the type argument — rather than looking for
 a separate "create stream" operation, which doesn't exist. Read-only
 status for stream connections/consumers/publishers is covered by
-`rabbitmq_workflow_monitoring_diagnostics`, not here.
+`rabbitmq-monitoring-diagnostics`, not here.

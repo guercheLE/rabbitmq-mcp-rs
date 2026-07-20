@@ -20,29 +20,29 @@ here instead.
 
 ## Menu
 
-- **`rabbitmq_workflow_queues`** — list, inspect, create, delete, or purge
+- **`rabbitmq-queues`** — list, inspect, create, delete, or purge
   queues; queue actions; messages; rebalance.
-- **`rabbitmq_workflow_exchanges`** — list, inspect, create, or delete
+- **`rabbitmq-exchanges`** — list, inspect, create, or delete
   exchanges; publish a message.
-- **`rabbitmq_workflow_bindings`** — list, create, or remove bindings
+- **`rabbitmq-bindings`** — list, create, or remove bindings
   between exchanges and queues, or between exchanges.
-- **`rabbitmq_workflow_dead_letter`** — set up a dead-letter
+- **`rabbitmq-dead-letter`** — set up a dead-letter
   exchange/queue (DLX/DLQ) for a queue, including the create-time-vs.
   -policy decision. Use this rather than `queues`/`exchanges`/`bindings`
   individually when the goal is specifically dead-lettering.
-- **`rabbitmq_workflow_vhosts`** — virtual host lifecycle, limits,
+- **`rabbitmq-vhosts`** — virtual host lifecycle, limits,
   deletion protection.
-- **`rabbitmq_workflow_users_permissions`** — user lifecycle, vhost and
+- **`rabbitmq-users-permissions`** — user lifecycle, vhost and
   topic permissions, per-user limits.
-- **`rabbitmq_workflow_policies`** — policies and operator-policy
+- **`rabbitmq-policies`** — policies and operator-policy
   overrides (HA, TTL, message-size limits, and policy-based dead-letter).
-- **`rabbitmq_workflow_federation_shovel`** — federation upstreams and
+- **`rabbitmq-federation-shovel`** — federation upstreams and
   shovels (configured indirectly, via generic parameters).
-- **`rabbitmq_workflow_definitions_backup_restore`** — export/import the
+- **`rabbitmq-definitions-backup-restore`** — export/import the
   full cluster's or one vhost's definitions.
-- **`rabbitmq_workflow_monitoring_diagnostics`** — connections, channels,
+- **`rabbitmq-monitoring-diagnostics`** — connections, channels,
   consumers, streams, health checks, node/cluster status.
-- **`rabbitmq_workflow_upgrade_readiness`** — is it safe to restart a
+- **`rabbitmq-upgrade-readiness`** — is it safe to restart a
   node, restart the cluster, or upgrade RabbitMQ; checks deprecated
   features, feature flags, and health, then confirms recovery after.
 

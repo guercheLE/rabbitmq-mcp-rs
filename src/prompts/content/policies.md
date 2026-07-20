@@ -1,7 +1,7 @@
 # Sub-workflow: Policies & operator policies
 
 This sub-workflow is self-contained and delegable: if you were routed
-here from `rabbitmq_workflow`, or your environment supports running
+here from `rabbitmq`, or your environment supports running
 sub-tasks in an isolated context, this prompt's own text is everything
 you need — report back only a short summary when done.
 
@@ -33,6 +33,6 @@ strictly) — if the user just says "policy" without qualifying it, use a
 regular policy unless something about their goal specifically calls for
 an operator override.
 
-If the goal is specifically dead-lettering, `rabbitmq_workflow_dead_letter`
+If the goal is specifically dead-lettering, `rabbitmq-dead-letter`
 walks through the policy-based path for that one case in more detail —
 prefer it over improvising the policy definition here from scratch.
