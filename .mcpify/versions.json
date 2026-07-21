@@ -9,31 +9,31 @@
       "db_file": "mcp_store.db",
       "schemas_file": "src/validation/generated_schemas.json.zst",
       "source": "openapi/rabbitmq-management-v4.3.2.openapi.yaml",
-      "added_at": 1784428201
+      "added_at": 1784659577
     },
     "4.2.8": {
       "db_file": "mcp_store_v4.2.8.db",
       "schemas_file": "src/validation/generated_schemas_v4.2.8.json.zst",
       "source": "openapi/rabbitmq-management-v4.2.8.openapi.yaml",
-      "added_at": 1784428202
+      "added_at": 1784659577
     },
     "4.1.8": {
       "db_file": "mcp_store_v4.1.8.db",
       "schemas_file": "src/validation/generated_schemas_v4.1.8.json.zst",
       "source": "openapi/rabbitmq-management-v4.1.8.openapi.yaml",
-      "added_at": 1784428202
+      "added_at": 1784659576
     },
     "4.0.9": {
       "db_file": "mcp_store_v4.0.9.db",
       "schemas_file": "src/validation/generated_schemas_v4.0.9.json.zst",
       "source": "openapi/rabbitmq-management-v4.0.9.openapi.yaml",
-      "added_at": 1784428203
+      "added_at": 1784659576
     },
     "3.13.7": {
       "db_file": "mcp_store_v3.13.7.db",
       "schemas_file": "src/validation/generated_schemas_v3.13.7.json.zst",
       "source": "openapi/rabbitmq-management-v3.13.7.openapi.yaml",
-      "added_at": 1784428203
+      "added_at": 1784659575
     }
   }
 }
